@@ -98,7 +98,7 @@ def _get_spkr_profile(spkrname, spkr_profiles, audio_folder):
     return spkr_profile
 
 
-def _replace_location(line_list: list) -> str:
+def _replace_location(sent: str) -> str:
     '''Handle WhatsApp Location sent functionality.
     Input
         line_list: list - list of words in the sentence
@@ -107,10 +107,11 @@ def _replace_location(line_list: list) -> str:
         Boolean False if location not detected and should continue processing
         Note: can use output of this function to skip futher checks (e.g. spell-check) and other costly string manipulations
     '''
-    if len(line_list) < 1: return line_list
-    if line_list[0].replace('\u200e', "") == "Location:":
+    splitstr = sent.split(": ", 1)
+    if len(splitstr) < 2: return sent
+    if "Location" in splitstr[0]:
         geo = Nominatim(user_agent="ChatParser")
-        tmptxt = line_list[1]
+        tmptxt = splitstr[1]
         if tmptxt[-1] == '.': tmptxt = tmptxt[:-1]
         loc_info = geo.reverse(tmptxt.split("?q=")[1], exactly_one=True).raw['address']
         road = loc_info.get('road', '')
@@ -120,5 +121,5 @@ def _replace_location(line_list: list) -> str:
         tourism = loc_info.get('tourism', '')
         line_list = [line_list[0], f"sent is in {road}, {city}, {country}{f' Tourist site: ({tourism})' if tourism else None}."]
     else:
-        print('This should never print. If you see this message, please first see if a new version has been released. If not, please contact the developer for debugging assistance. Line:', line_list)
+        print('This should never print. If you see this message, please first see if a new version has been released. If not, please contact the developer for debugging assistance. Line:', sent)
     return line_list

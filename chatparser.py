@@ -228,7 +228,7 @@ def process_chat_file_by_type(chat_file: str, audio_folder: str, model_prompt: s
                     #
                     #ctr=chat_num
                     #wkrs.append(wk_pool.submit(move_audio_file, line, audio_folder, ctr))
-                    move_audio_file(line, audio_folder, ctr)
+                    move_audio_file(line, audio_folder, chat_num)
                     print(f"Task queued: {line}") if __VERBOSE else None
                 else:
                     print(f"Need to move: {line}") if __VERBOSE else None
@@ -292,7 +292,6 @@ def move_audio_file(line, audio_folder, ctr) -> None:
         tmpaudio.export(a, format="mp3")
 
 def line_to_audio(line, spkrname, date_time_str, audio_folder, ctr: str, spkr_profiles: dict = {}):
-    print('made it into this line')
     day, mon, yr = date_time_str.split(",")[0].split("/")
     audio_out_file = os.path.join(audio_folder, "audio_out", f"{str(ctr+1).zfill(8)}-AUDIO-{yr}-{mon}-{day}-auto-generated.mp3")
     if os.path.exists(audio_out_file) and os.path.isfile(audio_out_file):
@@ -308,7 +307,7 @@ def line_to_audio(line, spkrname, date_time_str, audio_folder, ctr: str, spkr_pr
 
     # deal with locations being sent
     locreplaced = False
-    uline_list = _replace_location(line_list)
+    uline_list = [_replace_location(sent) for sent in line_list]
     if uline_list != line_list:
         locreplaced = True
         line_list = uline_list.copy()
