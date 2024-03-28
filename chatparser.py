@@ -33,7 +33,9 @@ from whisper import whisper
 from whisperspeech.pipeline import Pipeline
 from pydub import AudioSegment
 import nltk, nltk.data, string
+import multiprocessing as mp
 from multiprocessing import Process, Queue, cpu_count
+import concurrent.futures
 import inflect
 import json
 
@@ -53,6 +55,7 @@ __ENABLE_TIMINGS = None
 p = None
 pipe = None
 workers = None
+wk_pool = None
 punktChkr = None
 timings_measurement = None
 def_sample_rate = None
@@ -68,11 +71,16 @@ def set_globals():
     global p
     global pipe
     global workers
+    global wk_pool
     global punktChkr
     global timings_measurement
     global def_sample_rate
     global cps
 
+    # because apparently semafore locks with multiprocessing are broken, we have to do this:
+    mp.set_start_method('fork')
+    os.makedirs(".locks/", exist_ok=True)
+    os.environ["TMPDIR"] = os.path.abspath(".locks")
     __MODEL_NAME = "medium"
     __VERBOSE = False
     __PROGRESS_BAR = False
@@ -83,6 +91,7 @@ def set_globals():
     pipe = Pipeline()
 
     workers = []
+    wk_pool = None
 
     punktChkr = nltk.tokenize.PunktSentenceTokenizer()
     timings_measurement = []
@@ -118,16 +127,8 @@ def spellcheck(i: int, line: str) -> str:
         print(f"Unhandled error on line {i}")
 '''
 
-def worker(queue):
-    while True:
-        task = queue.get()  # Get a task from the queue
-        if task is None:  # None is the signal to stop
-            break
-        # Unpack the task tuple
-        func, args = task
-        func(*args)  # Execute the task
 
-def process_chat_file_by_type(chat_file: str, audio_folder: str, model_prompt: str, file_out: list, to_type: str = "text", tasksQueue: Queue =  None, wkrs: list|None = None) -> None:
+def process_chat_file_by_type(chat_file: str, audio_folder: str, model_prompt: str, file_out: list, to_type: str = "text", wkrs: list|None = None) -> None:
     if __ENABLE_TIMINGS: this_time = []
     if __ENABLE_TIMINGS: tt = this_time.append
     if __ENABLE_TIMINGS: now = datetime.now
@@ -141,151 +142,139 @@ def process_chat_file_by_type(chat_file: str, audio_folder: str, model_prompt: s
     # are required outside of the AI-driven main thread
     # i.e. converting file types
     #######################################################
-    global q
-    tasks = tasksQueue if tasksQueue is not None else q
-    if tasks == None: print("Multithreading options not passed as arguments. Defaulting to a single")
+    global pipe
+    global wk_pool
     if __NUM_WORKERS is not None and __NUM_WORKERS > 0: num_workers = __NUM_WORKERS
     else: num_workers = round((cpu_count() + 1) / 2)    # this way ensures that this is never 0, and ends up allocating slightly more than half the cpus
     if wkrs is None: 
         global workers
         wkrs = workers
 
-    # Start worker processes
-    for i in range(0, num_workers):
-        p = Process(target=worker, args=[tasks])
-        wkrs.append(p)
-        p.start()
-
     # End multiprocessing section
     #######################################################
+    with concurrent.futures.ProcessPoolExecutor(max_workers=num_workers) as wk_pool:
     
-    if __ENABLE_TIMINGS: tt(['source_file_read_start', now()])
-    with open(chat_file, "rb") as f:
-        file_in_precorrected = f.readlines()
-        fic = len(file_in_precorrected)
-    file_in = file_in_precorrected.copy()
-    if __ENABLE_TIMINGS: tt(['source_file_read_end', now()])
-    
-    '''
-    # this won't work until I can refactor this to save the output as it
-    # goes along instead of building a big array and then looping through
-    # that all at the end:
-    #       file_out.append(transcription)
-    skip_ahead = False
-    foc = 0
-    file_out = []
-    if os.path.isfile(processed_file) and (not __FORCE_REDO):
-        with open(processed_file, "rb") as f:
-            file_out = f.readlines()
-            foc = len(file_out)
-        skip_ahead = True
-    '''
-    if not __FORCE_REDO and os.path.isfile(processed_file):
-        print(f"Quitting early: {chat_file} has already been transcribed.")
-        return
-    
-    spkr_profiles = {}
-    
-    if __ENABLE_TIMINGS: tt(['load_model_from_huggingface_start',now()])
-    model_dir = "mlx-community/whisper-"
-    model_dir = model_dir + __MODEL_NAME + "-mlx-4bit"
-    _ = whisper.load_models.load_model(model_dir, mx.float16)
-    if __ENABLE_TIMINGS: tt(['load_model_from_huggingface_stop',now()])
+        if __ENABLE_TIMINGS: tt(['source_file_read_start', now()])
+        with open(chat_file, "rb") as f:
+            file_in_precorrected = f.readlines()
+            fic = len(file_in_precorrected)
+        file_in = file_in_precorrected.copy()
+        if __ENABLE_TIMINGS: tt(['source_file_read_end', now()])
+        
+        '''
+        # this won't work until I can refactor this to save the output as it
+        # goes along instead of building a big array and then looping through
+        # that all at the end:
+        #       file_out.append(transcription)
+        skip_ahead = False
+        foc = 0
+        file_out = []
+        if os.path.isfile(processed_file) and (not __FORCE_REDO):
+            with open(processed_file, "rb") as f:
+                file_out = f.readlines()
+                foc = len(file_out)
+            skip_ahead = True
+        '''
+        if not __FORCE_REDO and os.path.isfile(processed_file):
+            print(f"Quitting early: {chat_file} has already been transcribed.")
+            return
+        
+        spkr_profiles = {}
+        
+        if __ENABLE_TIMINGS: tt(['load_model_from_huggingface_start',now()])
+        model_dir = "mlx-community/whisper-"
+        model_dir = model_dir + __MODEL_NAME + "-mlx-4bit"
+        _ = whisper.load_models.load_model(model_dir, mx.float16)
+        if __ENABLE_TIMINGS: tt(['load_model_from_huggingface_stop',now()])
 
-    prev_datetime = None
-    prepend_text = None
-    append_text = None
-    prev_spkr = ""
-    cur_spkr_lines, prev_spr_lines = [], []
+        prev_datetime = None
+        prepend_text = None
+        append_text = None
+        prev_spkr = ""
+        cur_spkr_lines, prev_spr_lines = [], []
 
-    chat_num = 0 # will use this to account for multi-lines chats
+        chat_num = 0 # will use this to account for multi-lines chats
 
-    if __ENABLE_TIMINGS: tt(['lines_loop_start',now()])
-    for i in tqdm(range(0, fic), desc = os.path.split(audio_folder)[1], total=fic, miniters = 1, smoothing = 0.1, dynamic_ncols=True, disable=not __PROGRESS_BAR):
-        if __ENABLE_TIMINGS: tt([f'{i}_loop_start_chat_{chat_num}',now()])
-        firstline = i==0
-        lastline = i==fic-1
-        # Check if the line contains an audio attachment
-        line = file_in[i].decode().strip()
-        print(f"{line}") if __VERBOSE else None
-        line = re.sub(r'[^\x20-\x7E\u00A0-\uD7FF\uF900-\uFFFF\u200e]', '', line)
-        if len(line) < 1: continue
-        line = line.replace("\u200e","")
-        if line[0] == "[":
-            date_time_str, splitline = line.split("]", 1)
-            date_time_str = date_time_str.split("[", 1)[1]
-            cur_datetime = datetime.strptime(date_time_str, "%d/%m/%Y, %H:%M:%S")
-            
-            spkrname = " ".join(splitline.split(":", 1)[0].split(" ")[1:])
-            line = splitline.split(":",1)[1][1:]
-            if spkrname == "":
-                spkrname = None
-        match_audio = re.search(r"<attached: \d+-AUDIO-.+>", line)
-        match = re.search(r"<attached:.\s*.+?>", line)
-        if match:
-            #re.search(r"\[(.*?)\]", line).group(1)
-            #spkrname = re.search(r'^\[(\w+)\W', line).group(1)
-            if match_audio and to_type == "text":
-                transcribe_audio_line(audio_folder, match, model_dir, model_prompt, date_time_str, spkrname, file_out, chat_num)
-            elif match_audio and to_type == "audio":
-                tasks.put((_move_audio_file_mt, (line, audio_folder, chat_num, __VERBOSE)))
-                print(f"Task queued: {line}") if __VERBOSE else None
+        if __ENABLE_TIMINGS: tt(['lines_loop_start',now()])
+        for i in tqdm(range(0, fic), desc = os.path.split(audio_folder)[1], total=fic, miniters = 1, smoothing = 0.1, dynamic_ncols=True, disable=not __PROGRESS_BAR):
+            if __ENABLE_TIMINGS: tt([f'{i}_loop_start_chat_{chat_num}',now()])
+            firstline = i==0
+            lastline = i==fic-1
+            # Check if the line contains an audio attachment
+            line = file_in[i].decode().strip()
+            print(f"{line}") if __VERBOSE else None
+            line = re.sub(r'[^\x20-\x7E\u00A0-\uD7FF\uF900-\uFFFF\u200e]', '', line)
+            if len(line) < 1: continue
+            line = line.replace("\u200e","")
+            if line[0] == "[":
+                date_time_str, splitline = line.split("]", 1)
+                date_time_str = date_time_str.split("[", 1)[1]
+                cur_datetime = datetime.strptime(date_time_str, "%d/%m/%Y, %H:%M:%S")
+                
+                spkrname = " ".join(splitline.split(":", 1)[0].split(" ")[1:])
+                line = splitline.split(":",1)[1][1:]
+                if spkrname == "":
+                    spkrname = None
+            match_audio = re.search(r"<attached: \d+-AUDIO-.+>", line)
+            match = re.search(r"<attached:.\s*.+?>", line)
+            if match:
+                #re.search(r"\[(.*?)\]", line).group(1)
+                #spkrname = re.search(r'^\[(\w+)\W', line).group(1)
+                if match_audio and to_type == "text":
+                    transcribe_audio_line(audio_folder, match, model_dir, model_prompt, date_time_str, spkrname, file_out, chat_num)
+                elif match_audio and to_type == "audio":
+                    #
+                    # this is adding too pool
+                    #
+                    #ctr=chat_num
+                    #wkrs.append(wk_pool.submit(move_audio_file, line, audio_folder, ctr))
+                    move_audio_file(line, audio_folder, ctr)
+                    print(f"Task queued: {line}") if __VERBOSE else None
+                else:
+                    print(f"Need to move: {line}") if __VERBOSE else None
+                    file_out.append(line.strip() + "\n")
+            elif to_type == "audio": 
+                if prev_datetime is not None:
+                    if (cur_datetime - prev_datetime) > timedelta(hours=12):
+                        if (cur_datetime - prev_datetime) > timedelta(days=1):
+                            prepend_text = f"{(cur_datetime-prev_datetime).days} days have passed since the last message."
+                            prepend_text = f"{round((cur_datetime - prev_datetime).total_seconds() / 3600)} hours have passed since the last message"
+                            cur_spkr_lines.append(prepend_text)
+                # to audio by line, generate each line individually
+                os.makedirs(os.path.join(audio_folder, "audio_out"), exist_ok=True)
+
+                # actually generate the audio file for lines
+                if lastline or (prev_spkr != spkrname and not firstline):
+                    spkr_multi_lines = ". ".join(prev_spr_lines)
+                    #
+                    # this is adding to pool
+                    #
+                    #wkrs.append(wk_pool.submit(line_to_audio, spkr_multi_lines, prev_spkr, date_time_str, audio_folder, chat_num, spkr_profiles))
+                    line_to_audio(spkr_multi_lines, prev_spkr, date_time_str, audio_folder, chat_num, spkr_profiles)
+                    prev_spkr = spkrname
+                    prev_spr_lines.clear()
+                    for ln in cur_spkr_lines: prev_spr_lines.append(ln)
+                    cur_spkr_lines.clear()
+                    print(f"Done making audio for chat {chat_num}\n") if __VERBOSE else None
+                prev_spr_lines.append(line)
+
+                prepend_text = None
             else:
-                print(f"Need to move: {line}") if __VERBOSE else None
-                file_out.append(line.strip() + "\n")
-        elif to_type == "audio": 
-            if prev_datetime is not None:
-                if (cur_datetime - prev_datetime) > timedelta(hours=12):
-                    if (cur_datetime - prev_datetime) > timedelta(days=1):
-                        prepend_text = f"{(cur_datetime-prev_datetime).days} days have passed since the last message."
-                        prepend_text = f"{round((cur_datetime - prev_datetime).total_seconds() / 3600)} hours have passed since the last message"
-                        cur_spkr_lines.append(prepend_text)
-            # to audio by line, generate each line individually
-            os.makedirs(os.path.join(audio_folder, "audio_out"), exist_ok=True)
-            os.makedirs(os.path.join(audio_folder, "audio_tmp"), exist_ok=True)
-
-            # actually generate the audio file for lines
-            if lastline or (prev_spkr != spkrname and not firstline):
-                spkr_multi_lines = ". ".join(prev_spr_lines)
-                tasks.put((line_to_audio, (spkr_multi_lines, prev_spkr, date_time_str, audio_folder, i, spkr_profiles)))
-                prev_spkr = spkrname
-                prev_spr_lines.clear()
-                for ln in cur_spkr_lines: prev_spr_lines.append(ln)
-                cur_spkr_lines.clear()
-                print(f"Done making audio for chat {chat_num}\n") if __VERBOSE else None
-            prev_spr_lines.append(line)
-
-            prepend_text = None
-            append_text = None
-        else:
-            print(f"Don't know what to do with this line {i}")
-        prev_datetime = cur_datetime
-        if __ENABLE_TIMINGS: tt([f'{i}_loop_end',now()])
-        chat_num+=1
-    if __ENABLE_TIMINGS: tt(['lines_loop_end',now()])
+                print(f"Don't know what to do with this line {i}")
+            prev_datetime = cur_datetime
+            if __ENABLE_TIMINGS: tt([f'{i}_loop_end',now()])
+            chat_num+=1
+        concurrent.futures.wait(wkrs, timeout=120, return_when="ALL_COMPLETED")
+        if __ENABLE_TIMINGS: tt(['lines_loop_end',now()])
 
     #######################################################
     # Wrap up section. Close subprocesses and 
-    if __ENABLE_TIMINGS: tt(['subprocess_wait_start', now()])
-    # Signal workers to stop
-    for _ in wkrs:
-        tasks.put(None)
-    # Wait for all workers to finish
-    for w in wkrs:
-        w.join()
-    print(f'{len(w)} workers have finished moving audio files and stopped.') if __VERBOSE else None
-    if __ENABLE_TIMINGS: tt(['subprocess_wait_end',now()])
-
     if __ENABLE_TIMINGS: tt(['cleanup_end_start',now()])
     cleanup_end(processed_file, file_out)
     if __ENABLE_TIMINGS: tt(['cleanup_end_end', now()])
     if __ENABLE_TIMINGS: timings_measurement.append([os.path.abspath(os.path.join(chat_file, os.pardir)), this_time])
-    
-def process_line_mt_pool(argslist):
-    i, ret_val = process_line_mt(*argslist)
-    return {i: ret_val}
 
-def _move_audio_file_mt(line, audio_folder, ctr, __VERBOSE = False) -> None:
+def _move_audio_file_mt(line, audio_folder, ctr, __VERBOSE) -> None:
     '''Multithread wrapper for move_audio_file()
     '''
     move_audio_file(line, audio_folder, ctr)
@@ -303,19 +292,16 @@ def move_audio_file(line, audio_folder, ctr) -> None:
         tmpaudio.export(a, format="mp3")
 
 def line_to_audio(line, spkrname, date_time_str, audio_folder, ctr: str, spkr_profiles: dict = {}):
+    print('made it into this line')
     day, mon, yr = date_time_str.split(",")[0].split("/")
     audio_out_file = os.path.join(audio_folder, "audio_out", f"{str(ctr+1).zfill(8)}-AUDIO-{yr}-{mon}-{day}-auto-generated.mp3")
     if os.path.exists(audio_out_file) and os.path.isfile(audio_out_file):
         print(f"File exists: {audio_out_file}") if __VERBOSE else None
         return audio_out_file
 
-    prev_datetime = None
     global def_sample_rate
     global cps
-    #ontime = datetime.now()
     spkr_profile = _get_spkr_profile(spkrname=spkrname, spkr_profiles=spkr_profiles, audio_folder=audio_folder)
-    #offtime = datetime.now()
-    #print(f"{str(ctr).zfill(4)}: took {(offtime-ontime).total_seconds()} seconds to get spkr_profile.")
 
     print(f"Audio out file: {audio_out_file}") if __VERBOSE else None
     line_list = line.strip().split(" ")
@@ -327,7 +313,7 @@ def line_to_audio(line, spkrname, date_time_str, audio_folder, ctr: str, spkr_pr
         locreplaced = True
         line_list = uline_list.copy()
 
-    print(f"  Updated location chat no. {ctr+1}") if locreplaced else None
+    print(f"  Updated location in chat no. {ctr+1}") if locreplaced else None
 
     line_text = " ".join(line_list)
     if line_text == "": print("No line text.") if __VERBOSE else None; return
@@ -536,8 +522,6 @@ if __name__ == "__main__":
     # process_directories handles recursion on its own
     for dir in args.input_directory:
         try:
-            global q
-            q = Queue()
             process_directories(dir, model_input, to_type, num_workers=__NUM_WORKERS)
         finally:
             with open(os.path.join(dir, "_debug_dict.json"), 'a') as f:

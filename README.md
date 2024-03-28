@@ -57,10 +57,24 @@ This depends on the [mlx-community](https://huggingface.io/mlx-community) and sp
 
 ### Executing program
 
-This relies on the expected format of a WhatsApp Chat Export. 
+It is recommended that you execute this code within the chatparser directory itself. 
+This will create a temporary folder called ".locks", since the `multiprocessing` package on MacOS has
+an issue with semaphore locks.
+_This relies on the expected format of a WhatsApp Chat Export._
+
+To convert text to audio:
+```python
+python chatparser.py --to-type audio -i (/path/to/dir/of/dirs|/path/to/dir)
 ```
-code blocks for commands
+Note that this supports doing mass-file transformation. Simply save all your WhatsApp exports (unzipped!) into the same directory, and 
+ChatParser will loop through them all one-by-one. 
+
+To convert everything to test:
+```python
+python chatparser.py --to-type text -i (/path/to/dir/of/dirs|/path/to/dir) [-m|--model {small, medium, large-v1, etc}]
 ```
+
+Make sure that your shell has read and write access to the given directory.
 
 ## Help
 
