@@ -52,6 +52,7 @@ __PROGRESS_BAR = None
 __FORCE_REDO = None
 __NUM_WORKERS = None
 __ENABLE_TIMINGS = None
+q = None
 p = None
 pipe = None
 workers = None
@@ -68,6 +69,7 @@ def set_globals():
     global __FORCE_REDO
     global __NUM_WORKERS
     global __ENABLE_TIMINGS
+    global q
     global p
     global pipe
     global workers
@@ -87,6 +89,9 @@ def set_globals():
     __FORCE_REDO = False
     __NUM_WORKERS = None
     __ENABLE_TIMINGS = False
+
+    q = Queue()
+
     p = inflect.engine()
     pipe = Pipeline()
 
@@ -127,6 +132,14 @@ def spellcheck(i: int, line: str) -> str:
         print(f"Unhandled error on line {i}")
 '''
 
+def worker(queue):
+    while True:
+        task = queue.get()  # Get a task from the queue
+        if task is None:  # None is the signal to stop
+            break
+        # Unpack the task tuple
+        func, args = task
+        func(*args)  # Execute the task
 
 def process_chat_file_by_type(chat_file: str, audio_folder: str, model_prompt: str, file_out: list, to_type: str = "text", wkrs: list|None = None) -> None:
     if __ENABLE_TIMINGS: this_time = []
@@ -142,6 +155,9 @@ def process_chat_file_by_type(chat_file: str, audio_folder: str, model_prompt: s
     # are required outside of the AI-driven main thread
     # i.e. converting file types
     #######################################################
+    global q
+    tasks = q
+    if tasks == None and __VERBOSE: print("Multithreading options not passed as arguments. Defaulting to a single")
     global pipe
     global wk_pool
     if __NUM_WORKERS is not None and __NUM_WORKERS > 0: num_workers = __NUM_WORKERS
@@ -149,6 +165,12 @@ def process_chat_file_by_type(chat_file: str, audio_folder: str, model_prompt: s
     if wkrs is None: 
         global workers
         wkrs = workers
+    
+    # Start worker processes
+    for i in range(0, num_workers):
+        p = Process(target=worker, args=[tasks])
+        wkrs.append(p)
+        p.start()
 
     # End multiprocessing section
     #######################################################
@@ -228,7 +250,8 @@ def process_chat_file_by_type(chat_file: str, audio_folder: str, model_prompt: s
                     #
                     #ctr=chat_num
                     #wkrs.append(wk_pool.submit(move_audio_file, line, audio_folder, ctr))
-                    move_audio_file(line, audio_folder, chat_num)
+                    #move_audio_file(line, audio_folder, chat_num)
+                    tasks.put((_move_audio_file_mt, (line, audio_folder, chat_num, __VERBOSE)))
                     print(f"Task queued: {line}") if __VERBOSE else None
                 else:
                     print(f"Need to move: {line}") if __VERBOSE else None
@@ -269,6 +292,12 @@ def process_chat_file_by_type(chat_file: str, audio_folder: str, model_prompt: s
 
     #######################################################
     # Wrap up section. Close subprocesses and 
+        # Signal workers to stop
+    for _ in wkrs:
+        tasks.put(None)
+    # Wait for all workers to finish
+    for w in wkrs:
+        w.join()
     if __ENABLE_TIMINGS: tt(['cleanup_end_start',now()])
     cleanup_end(processed_file, file_out)
     if __ENABLE_TIMINGS: tt(['cleanup_end_end', now()])
