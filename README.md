@@ -69,7 +69,15 @@ python chatparser.py --to-type audio -i (/path/to/dir/of/dirs|/path/to/dir)
 Note that this supports doing mass-file transformation. Simply save all your WhatsApp exports (unzipped!) into the same directory, and 
 ChatParser will loop through them all one-by-one. 
 
-To convert everything to test:
+#### Voice cloning
+To create a voice clone, first collect quality sound clips of yourself. No need to edit the files or convert them into any particular format.
+```bash
+pip install pydub speechbrain
+```
+...
+
+To convert everything to text:
+_(right now, only audio is transcribed, but the plan would be to extract the audio stream from video files with `ffmpeg` and transcribe that)
 ```python
 python chatparser.py --to-type text -i (/path/to/dir/of/dirs|/path/to/dir) [-m|--model {small, medium, large-v1, etc}]
 ```
