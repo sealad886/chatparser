@@ -10,7 +10,7 @@ jsonpointer==2.4
 jupyter==1.0.0
 mlx-lm==0.0.14
 more-itertools==10.2.0
-nltk==3.8.1
+nltk==3.9
 numba==0.59.1
 pip-chill==1.0.3
 pydub==0.25.1
