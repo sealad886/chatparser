@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct ContentView: View {
@@ -23,6 +24,12 @@ private struct SidebarView: View {
                 } label: {
                     Label("Choose Folder", systemImage: "folder")
                 }
+                Button {
+                    state.loadChatExport()
+                } label: {
+                    Label("Reload Chat", systemImage: "text.bubble")
+                }
+                .disabled(state.configuration.inputDirectory == nil)
 
                 Text(state.configuration.inputDirectory?.lastPathComponent ?? "No folder selected")
                     .font(.callout)
@@ -61,6 +68,8 @@ private struct DetailView: View {
 
     var body: some View {
         TabView {
+            ConversationView()
+                .tabItem { Label("Conversation", systemImage: "bubble.left.and.bubble.right") }
             TransformRunView()
                 .tabItem { Label("Transform", systemImage: "arrow.triangle.2.circlepath") }
             VoiceProfilesView()
@@ -68,6 +77,246 @@ private struct DetailView: View {
             TextToVoiceView()
                 .tabItem { Label("Speak Text", systemImage: "waveform") }
         }
+    }
+}
+
+private struct ConversationView: View {
+    @EnvironmentObject private var state: AppState
+
+    var body: some View {
+        HSplitView {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Text("Chat")
+                        .font(.headline)
+                    Spacer()
+                    Picker("Me", selection: $state.meParticipant) {
+                        ForEach(state.chatParticipants, id: \.self) { participant in
+                            Text(participant).tag(participant)
+                        }
+                    }
+                    .frame(maxWidth: 220)
+                    .disabled(state.chatParticipants.isEmpty)
+                }
+
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(spacing: 8) {
+                            ForEach(state.chatMessages) { message in
+                                ChatBubbleView(message: message)
+                                    .id(message.id)
+                                    .onTapGesture {
+                                        state.selectChatMessage(message)
+                                    }
+                            }
+                        }
+                        .padding(.vertical, 12)
+                    }
+                    .onChange(of: state.selectedChatMessageID) { _, value in
+                        if let value {
+                            proxy.scrollTo(value, anchor: .center)
+                        }
+                    }
+                }
+                .background(.quaternary.opacity(0.2))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+
+                HStack {
+                    Text(state.chatMessage)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    if state.isConversationGenerating {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text(state.conversationProgress)
+                            .foregroundStyle(.secondary)
+                    }
+                    Button {
+                        state.generateSelectedChatMessageAudio()
+                    } label: {
+                        Label("Speak Selection", systemImage: "waveform")
+                    }
+                    .disabled(state.selectedChatMessage == nil)
+                    Button {
+                        state.generateConversationAudio()
+                    } label: {
+                        Label("Render Conversation", systemImage: "play.circle")
+                    }
+                    .disabled(state.chatMessages.isEmpty || state.isConversationGenerating)
+                }
+            }
+            .padding()
+            .frame(minWidth: 560)
+
+            SpeakerProfilePanel()
+                .frame(minWidth: 320)
+        }
+    }
+}
+
+private struct ChatBubbleView: View {
+    @EnvironmentObject private var state: AppState
+    let message: ChatMessage
+
+    private var isMe: Bool {
+        message.speaker == state.meParticipant && message.speaker != nil
+    }
+
+    private var isSelected: Bool {
+        state.selectedChatMessageID == message.id
+    }
+
+    var body: some View {
+        HStack {
+            if isMe { Spacer(minLength: 80) }
+            VStack(alignment: isMe ? .trailing : .leading, spacing: 4) {
+                if message.speaker != nil {
+                    Text(message.participant)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(message.text)
+                        .textSelection(.enabled)
+                    if let attachment = message.attachment {
+                        AttachmentView(attachment: attachment)
+                    }
+                }
+                .padding(10)
+                .background(isMe ? Color.accentColor.opacity(0.18) : Color.secondary.opacity(0.12))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 2)
+                )
+                Text(message.timestamp.formatted(date: .abbreviated, time: .shortened))
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+            .frame(maxWidth: 520, alignment: isMe ? .trailing : .leading)
+            if !isMe { Spacer(minLength: 80) }
+        }
+        .padding(.horizontal, 12)
+    }
+}
+
+private struct AttachmentView: View {
+    @EnvironmentObject private var state: AppState
+    let attachment: ChatAttachment
+
+    var body: some View {
+        HStack(spacing: 8) {
+            if attachment.isImage, let image = NSImage(contentsOf: attachment.url) {
+                Image(nsImage: image)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: 72, height: 72)
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+            } else {
+                Image(systemName: iconName)
+                    .frame(width: 28)
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(attachment.filename)
+                    .font(.callout)
+                    .lineLimit(1)
+                Text(attachment.url.path)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer()
+            Button {
+                state.openAttachment(attachment)
+            } label: {
+                Label("Open", systemImage: "arrow.up.right.square")
+            }
+            .labelStyle(.iconOnly)
+        }
+        .padding(8)
+        .background(.quaternary.opacity(0.35))
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+    }
+
+    private var iconName: String {
+        if attachment.isAudio { return "waveform" }
+        if attachment.isVideo { return "film" }
+        if attachment.isImage { return "photo" }
+        return "paperclip"
+    }
+}
+
+private struct SpeakerProfilePanel: View {
+    @EnvironmentObject private var state: AppState
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Speakers")
+                    .font(.headline)
+                Spacer()
+                Button {
+                    state.refreshVoicebox()
+                } label: {
+                    Label("Profiles", systemImage: "arrow.clockwise")
+                }
+            }
+
+            if state.chatParticipants.isEmpty {
+                Text("Import a WhatsApp export to map speakers.")
+                    .foregroundStyle(.secondary)
+            } else {
+                List {
+                    ForEach(state.chatParticipants, id: \.self) { participant in
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack {
+                                Text(participant)
+                                    .font(.body)
+                                if participant == state.meParticipant {
+                                    Text("me")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                            }
+                            Picker("Voice", selection: Binding(
+                                get: { state.profileID(for: participant) },
+                                set: { state.setProfileID($0, for: participant) }
+                            )) {
+                                Text("No voice").tag("")
+                                ForEach(state.profiles) { profile in
+                                    Text(profile.name).tag(profile.id)
+                                }
+                            }
+                            .labelsHidden()
+                            Button {
+                                state.assignSelectedVoiceProfile(to: participant)
+                            } label: {
+                                Label("Use Selected Profile", systemImage: "person.crop.circle.badge.checkmark")
+                            }
+                            .disabled(state.selectedProfileID == nil)
+                        }
+                        .padding(.vertical, 4)
+                    }
+                }
+            }
+
+            Divider()
+
+            Text("Selected")
+                .font(.headline)
+            if let message = state.selectedChatMessage {
+                Text(message.participant)
+                    .foregroundStyle(.secondary)
+                Text(message.text)
+                    .lineLimit(5)
+                    .textSelection(.enabled)
+            } else {
+                Text("Click a message to speak it through its speaker profile.")
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding()
     }
 }
 

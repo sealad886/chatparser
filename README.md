@@ -102,6 +102,12 @@ The Codex app Run action is wired to the same script. The app lets you choose a
 WhatsApp export folder, select transcribe or generate-audio mode, configure the
 Voicebox URL/model/profile/language, and watch the Python process log.
 
+The first tab is the conversation. It imports the WhatsApp export, renders the
+messages as chat bubbles, shows local attachments, lets you choose which
+participant is "me" so those bubbles align to the right, and lets you map each
+speaker to a Voicebox profile. You can speak a selected message through that
+speaker's profile or render the conversation into per-message audio clips.
+
 The app also works directly with the local Voicebox API. In the `Profiles` tab
 you can load profiles, create cloned profiles, edit profile metadata, add local
 voice clips with reference text, edit clip reference text, and delete profiles or

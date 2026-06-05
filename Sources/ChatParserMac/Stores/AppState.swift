@@ -21,8 +21,17 @@ final class AppState: ObservableObject {
     @Published var generatedAudioURL: URL?
     @Published var voiceboxMessage = ""
     @Published var isVoiceboxBusy = false
+    @Published var chatMessages: [ChatMessage] = []
+    @Published var chatParticipants: [String] = []
+    @Published var meParticipant = ""
+    @Published var selectedChatMessageID: UUID?
+    @Published var participantProfileIDs: [String: String] = [:]
+    @Published var chatMessage = ""
+    @Published var isConversationGenerating = false
+    @Published var conversationProgress = ""
 
     private let runner = ChatParserRunner()
+    private let parser = WhatsAppExportParser()
     private let defaultGeneratedAudioName = "voicebox-selection.wav"
 
     var canRun: Bool {
@@ -42,6 +51,10 @@ final class AppState: ObservableObject {
         samples.first { $0.id == selectedSampleID }
     }
 
+    var selectedChatMessage: ChatMessage? {
+        chatMessages.first { $0.id == selectedChatMessageID }
+    }
+
     func chooseInputDirectory() {
         let panel = NSOpenPanel()
         panel.allowsMultipleSelection = false
@@ -52,6 +65,110 @@ final class AppState: ObservableObject {
 
         if panel.runModal() == .OK {
             configuration.inputDirectory = panel.url
+            loadChatExport()
+        }
+    }
+
+    func loadChatExport() {
+        guard let inputDirectory = configuration.inputDirectory else { return }
+        do {
+            let messages = try parser.parseExport(at: inputDirectory)
+            chatMessages = messages
+            chatParticipants = Array(Set(messages.compactMap(\.speaker))).sorted()
+            if meParticipant.isEmpty || !chatParticipants.contains(meParticipant) {
+                meParticipant = chatParticipants.first ?? ""
+            }
+            selectedChatMessageID = messages.first?.id
+            chatMessage = "Loaded \(messages.count) messages"
+        } catch {
+            chatMessages = []
+            chatParticipants = []
+            selectedChatMessageID = nil
+            chatMessage = error.localizedDescription
+        }
+    }
+
+    func selectChatMessage(_ message: ChatMessage) {
+        selectedChatMessageID = message.id
+        if !message.text.isEmpty {
+            generationText = message.text
+        }
+    }
+
+    func openAttachment(_ attachment: ChatAttachment) {
+        NSWorkspace.shared.open(attachment.url)
+    }
+
+    func profileID(for participant: String) -> String {
+        participantProfileIDs[participant] ?? ""
+    }
+
+    func setProfileID(_ profileID: String, for participant: String) {
+        participantProfileIDs[participant] = profileID
+        rebuildProfileMap()
+    }
+
+    func assignSelectedVoiceProfile(to participant: String) {
+        guard let selectedProfileID else { return }
+        setProfileID(selectedProfileID, for: participant)
+    }
+
+    func generateSelectedChatMessageAudio() {
+        guard let message = selectedChatMessage else { return }
+        generationText = message.text
+        selectedProfileID = participantProfileIDs[message.participant] ?? selectedProfileID
+        generateSelectedText()
+    }
+
+    func generateConversationAudio() {
+        let playable = chatMessages.filter { message in
+            guard let speaker = message.speaker else { return false }
+            return !(participantProfileIDs[speaker] ?? "").isEmpty && !message.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        guard !playable.isEmpty else {
+            chatMessage = "Assign at least one speaker to a Voicebox profile."
+            return
+        }
+
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.prompt = "Choose Output Folder"
+        if panel.runModal() != .OK { return }
+        guard let outputFolder = panel.url else { return }
+
+        isConversationGenerating = true
+        conversationProgress = "0 / \(playable.count)"
+        Task {
+            do {
+                let api = try VoiceboxAPI(baseURLString: self.configuration.voiceboxURL)
+                for (index, message) in playable.enumerated() {
+                    guard let speaker = message.speaker, let profileID = self.participantProfileIDs[speaker] else { continue }
+                    let safeSpeaker = speaker.replacingOccurrences(of: "[^A-Za-z0-9_-]+", with: "-", options: .regularExpression)
+                    let filename = "\(String(format: "%05d", index + 1))-\(safeSpeaker).wav"
+                    let destination = outputFolder.appendingPathComponent(filename)
+                    _ = try await api.generateSpeech(
+                        profileID: profileID,
+                        text: message.text,
+                        language: self.configuration.language,
+                        destination: destination
+                    )
+                    await MainActor.run {
+                        self.conversationProgress = "\(index + 1) / \(playable.count)"
+                    }
+                }
+                await MainActor.run {
+                    self.chatMessage = "Generated \(playable.count) audio clips"
+                    self.isConversationGenerating = false
+                    NSWorkspace.shared.open(outputFolder)
+                }
+            } catch {
+                await MainActor.run {
+                    self.chatMessage = error.localizedDescription
+                    self.isConversationGenerating = false
+                }
+            }
         }
     }
 
@@ -287,6 +404,14 @@ final class AppState: ObservableObject {
         profileLanguage = selectedProfile.language
         profilePersonality = selectedProfile.personality ?? ""
         configuration.profileID = selectedProfile.id
+    }
+
+    private func rebuildProfileMap() {
+        configuration.profileMap = participantProfileIDs
+            .filter { !$0.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            .sorted { $0.key < $1.key }
+            .map { "\($0.key)=\($0.value)" }
+            .joined(separator: "\n")
     }
 
     private var profileLanguageOrDefault: String {
