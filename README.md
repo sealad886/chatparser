@@ -32,8 +32,19 @@ install and configure environments and what to install will be forthcoming in fu
 ### Dependencies
 
 ### Phone Compatibility
-This only works for the iPhone version of WhatsApp (tested with iOS 17.4 and WhatsApp 24.6.77). 
-The chat export format is drastically different for the Android platform
+ChatParser supports WhatsApp exports from iPhone and Android.
+
+Supported message headers include:
+
+```text
+[31/12/2024, 23:05:07] Alice: iPhone export message
+31/12/2024, 23:05 - Alice: Android 24-hour export message
+12/31/24, 8:05 PM - Alice: Android 12-hour export message
+```
+
+Supported audio attachment markers include iPhone-style `<attached: ...>` entries
+and Android-style `AUD-...opus (file attached)` or `PTT-...opus (file attached)`
+entries when the referenced media file is present in the unzipped export folder.
 
 Create and use a project-local virtual environment. Do not install into global
 Python:

@@ -33,9 +33,25 @@ from multiprocessing import Process, Queue, cpu_count
 import concurrent.futures
 import inflect
 import json
+from dataclasses import dataclass
 
 from utils.utils import _check_spelling, _replace_location, debug_dict
 from voicebox_client import VoiceboxClient
+
+
+@dataclass(frozen=True)
+class ParsedWhatsAppLine:
+    timestamp: datetime
+    date_time_str: str
+    speaker: str | None
+    message: str
+    source_format: str
+
+
+@dataclass(frozen=True)
+class WhatsAppAttachment:
+    filename: str
+    is_audio: bool
 
 __MODEL_NAME = None
 __VERBOSE = None
@@ -132,6 +148,97 @@ def replace_terms(input_str, replacement_dict) -> str:
         # Use a regular expression with word boundaries to replace the text
         input_str = re.sub(rf'\b{re.escape(find_text)}\b', replace_with, input_str)
     return input_str
+
+
+def _parse_export_timestamp(value: str) -> datetime | None:
+    normalized = value.strip().replace("\u202f", " ").replace("\u00a0", " ")
+    formats = [
+        "%d/%m/%Y, %H:%M:%S",
+        "%d/%m/%Y, %H:%M",
+        "%d/%m/%y, %H:%M:%S",
+        "%d/%m/%y, %H:%M",
+        "%d/%m/%Y, %I:%M:%S %p",
+        "%d/%m/%Y, %I:%M %p",
+        "%d/%m/%y, %I:%M:%S %p",
+        "%d/%m/%y, %I:%M %p",
+        "%m/%d/%Y, %I:%M:%S %p",
+        "%m/%d/%Y, %I:%M %p",
+        "%m/%d/%y, %I:%M:%S %p",
+        "%m/%d/%y, %I:%M %p",
+        "%m/%d/%Y, %H:%M:%S",
+        "%m/%d/%Y, %H:%M",
+        "%m/%d/%y, %H:%M:%S",
+        "%m/%d/%y, %H:%M",
+    ]
+    for fmt in formats:
+        try:
+            return datetime.strptime(normalized, fmt)
+        except ValueError:
+            continue
+    return None
+
+
+def parse_whatsapp_line(line: str) -> ParsedWhatsAppLine | None:
+    cleaned = line.strip().replace("\u200e", "")
+    if not cleaned:
+        return None
+
+    ios_match = re.match(r"^\[(?P<timestamp>[^\]]+)\]\s*(?P<body>.*)$", cleaned)
+    if ios_match:
+        timestamp = _parse_export_timestamp(ios_match.group("timestamp"))
+        if timestamp is None:
+            return None
+        body = ios_match.group("body")
+        speaker, message = _split_speaker_message(body)
+        return ParsedWhatsAppLine(
+            timestamp=timestamp,
+            date_time_str=timestamp.strftime("%d/%m/%Y, %H:%M:%S"),
+            speaker=speaker,
+            message=message,
+            source_format="ios",
+        )
+
+    android_match = re.match(r"^(?P<timestamp>.+?)\s+-\s+(?P<body>.*)$", cleaned)
+    if android_match:
+        timestamp = _parse_export_timestamp(android_match.group("timestamp"))
+        if timestamp is None:
+            return None
+        speaker, message = _split_speaker_message(android_match.group("body"))
+        return ParsedWhatsAppLine(
+            timestamp=timestamp,
+            date_time_str=timestamp.strftime("%d/%m/%Y, %H:%M:%S"),
+            speaker=speaker,
+            message=message,
+            source_format="android",
+        )
+    return None
+
+
+def _split_speaker_message(body: str) -> tuple[str | None, str]:
+    if ": " not in body:
+        return None, body.strip()
+    speaker, message = body.split(": ", 1)
+    speaker = speaker.strip() or None
+    return speaker, message.strip()
+
+
+def find_whatsapp_attachment(message: str) -> WhatsAppAttachment | None:
+    ios_match = re.search(r"<attached:\s*(?P<filename>.+?)>", message)
+    if ios_match:
+        filename = ios_match.group("filename").strip()
+        return WhatsAppAttachment(filename=filename, is_audio=_is_audio_attachment(filename))
+
+    android_match = re.search(r"(?P<filename>\S+\.(?:opus|ogg|m4a|mp3|wav|aac|flac|webm))\s+\(file attached\)", message, re.IGNORECASE)
+    if android_match:
+        filename = android_match.group("filename").strip()
+        return WhatsAppAttachment(filename=filename, is_audio=_is_audio_attachment(filename))
+    return None
+
+
+def _is_audio_attachment(filename: str) -> bool:
+    upper = filename.upper()
+    suffix = Path(filename).suffix.lower()
+    return "AUDIO" in upper or upper.startswith(("AUD-", "PTT-")) or suffix in {".opus", ".ogg", ".m4a", ".mp3", ".wav", ".aac", ".flac", ".webm"}
 
 '''
 def spellcheck(i: int, line: str) -> str:
@@ -236,30 +343,33 @@ def process_chat_file_by_type(chat_file: str, audio_folder: str, model_prompt: s
             line = re.sub(r'[^\x20-\x7E\u00A0-\uD7FF\uF900-\uFFFF\u200e]', '', line)
             if len(line) < 1: continue
             line = line.replace("\u200e","")
-            if line[0] == "[":
-                date_time_str, splitline = line.split("]", 1)
-                date_time_str = date_time_str.split("[", 1)[1]
-                cur_datetime = datetime.strptime(date_time_str, "%d/%m/%Y, %H:%M:%S")
-                
-                spkrname = " ".join(splitline.split(":", 1)[0].split(" ")[1:])
-                line = splitline.split(":",1)[1][1:]
-                if spkrname == "":
-                    spkrname = None
-            match_audio = re.search(r"<attached: \d+-AUDIO-.+>", line)
-            match = re.search(r"<attached:.\s*.+?>", line)
-            if match:
+            parsed = parse_whatsapp_line(line)
+            if parsed is None:
+                if file_out:
+                    file_out[-1] = file_out[-1].rstrip("\n") + f"\n{line}\n"
+                else:
+                    file_out.append(line.strip() + "\n")
+                continue
+
+            date_time_str = parsed.date_time_str
+            cur_datetime = parsed.timestamp
+            spkrname = parsed.speaker
+            line = parsed.message
+
+            attachment = find_whatsapp_attachment(line)
+            if attachment:
                 #re.search(r"\[(.*?)\]", line).group(1)
                 #spkrname = re.search(r'^\[(\w+)\W', line).group(1)
-                if match_audio and to_type == "text":
-                    transcribe_audio_line(audio_folder, match, model_dir, model_prompt, date_time_str, spkrname, file_out, chat_num)
-                elif match_audio and to_type == "audio":
+                if attachment.is_audio and to_type == "text":
+                    transcribe_audio_line(audio_folder, attachment, model_dir, model_prompt, date_time_str, spkrname, file_out, chat_num)
+                elif attachment.is_audio and to_type == "audio":
                     #
                     # this is adding too pool
                     #
                     #ctr=chat_num
                     #wkrs.append(wk_pool.submit(move_audio_file, line, audio_folder, ctr))
                     #move_audio_file(line, audio_folder, chat_num)
-                    tasks.put((_move_audio_file_mt, (line, audio_folder, chat_num, __VERBOSE)))
+                    tasks.put((_move_audio_file_mt, (attachment, audio_folder, chat_num, __VERBOSE)))
                     print(f"Task queued: {line}") if __VERBOSE else None
                 else:
                     print(f"Need to move: {line}") if __VERBOSE else None
@@ -295,7 +405,6 @@ def process_chat_file_by_type(chat_file: str, audio_folder: str, model_prompt: s
             prev_datetime = cur_datetime
             if __ENABLE_TIMINGS: tt([f'{i}_loop_end',now()])
             chat_num+=1
-        concurrent.futures.wait(wkrs, timeout=120, return_when="ALL_COMPLETED")
         if __ENABLE_TIMINGS: tt(['lines_loop_end',now()])
 
     #######################################################
@@ -311,17 +420,18 @@ def process_chat_file_by_type(chat_file: str, audio_folder: str, model_prompt: s
     if __ENABLE_TIMINGS: tt(['cleanup_end_end', now()])
     if __ENABLE_TIMINGS: timings_measurement.append([os.path.abspath(os.path.join(chat_file, os.pardir)), this_time])
 
-def _move_audio_file_mt(line, audio_folder, ctr, __VERBOSE) -> None:
+def _move_audio_file_mt(attachment, audio_folder, ctr, __VERBOSE) -> None:
     '''Multithread wrapper for move_audio_file()
     '''
-    move_audio_file(line, audio_folder, ctr)
+    move_audio_file(attachment, audio_folder, ctr)
 
-def move_audio_file(line, audio_folder, ctr) -> None:
+def move_audio_file(attachment, audio_folder, ctr) -> None:
     from pydub import AudioSegment
 
-    audio_file = os.path.join(audio_folder, re.search(r"<attached:.+?>", line).group(0)[10:-1].strip())
+    filename = attachment.filename if isinstance(attachment, WhatsAppAttachment) else re.search(r"<attached:.+?>", attachment).group(0)[10:-1].strip()
+    audio_file = os.path.join(audio_folder, filename)
     
-    target_file = os.path.join(audio_folder, "audio_out", re.search(r"<attached:.+?>", line).group(0)[10:-1].strip())[:-4]+"mp3"
+    target_file = os.path.join(audio_folder, "audio_out", filename)[:-4]+"mp3"
     print(f"Moving to: {target_file}") if __VERBOSE else None
     if os.path.exists(target_file): 
         print(f"Already exists: {target_file}") if __VERBOSE else None
@@ -406,7 +516,8 @@ def line_to_audio(line, spkrname, date_time_str, audio_folder, ctr: str, spkr_pr
 
 def transcribe_audio_line(audio_folder, match, model_dir, model_prompt, date_time_str, spkrname, file_out, i):
     # Extract the audio file name from the line
-    audio_file = os.path.join(audio_folder, match.group(0)[10:-1].strip())
+    filename = match.filename if isinstance(match, WhatsAppAttachment) else match.group(0)[10:-1].strip()
+    audio_file = os.path.join(audio_folder, filename)
 
     global __VOICEBOX_CLIENT
     global __VOICEBOX_MODEL
