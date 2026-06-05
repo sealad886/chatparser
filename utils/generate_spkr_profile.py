@@ -1,13 +1,11 @@
 #
 # included file: generate_spkr_profile.py
 # usage: standalone CLI utility
-#     from the command line, run (if your python executable is not callable using 'python', simply update it to the correct callable function):
-#         python -c 'import generate_speaker_profile as gp; gp.generate_spkr_fo
 # part of:
 # ChatParser - A CLI-based tool to transform WhatsApp Chat Export data
 # ---------------------------
 # Copyright (C) 2024  Andrew M. Cox
-# 
+#
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
@@ -22,51 +20,46 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 # ---------------------------
 #
-import torch
-from pydub import AudioSegment
-from speechbrain.pretrained import EncoderClassifier
-from whisperspeech.pipeline import Pipeline
+
+from __future__ import annotations
+
+import argparse
+
+from voicebox_client import VoiceboxClient
 
 
-import os
-import string
-from typing import LiteralString
+def list_voicebox_profiles(base_url: str = "http://127.0.0.1:17493") -> list[dict]:
+    """Return local Voicebox voice profiles usable by ChatParser."""
+    return VoiceboxClient(base_url=base_url).list_profiles()
 
 
-def generate_spkr_profile(spkrname: str, audio_files: list[str]|str):
-    '''Returns a PyTorch Tensor of a speaker when given sample audio clips.
-    To be used with WhisperSpeech voice cloning techinuqes in the Chatparser app.
+def print_voicebox_profiles(base_url: str = "http://127.0.0.1:17493") -> None:
+    profiles = list_voicebox_profiles(base_url)
+    if not profiles:
+        print("No Voicebox profiles found. Create or import one in Voicebox first.")
+        return
 
-    This will not be auto-run in the code. Run this first for each WhatsApp chat you're manipulating. Make sure you current working directory is the same folder containing the _chat.txt file. Python user must have read/write privileges.
-    Input:
-        sprkname: (Required) str - unique key to identify the speaker. In code, this is parsed from the WhatsApp display name in the message. 
-        audio_files: (Required) list[str]|str - full path to sample audio files in any format readable by ffmpeg. Will only use first 30 seconds, so try to make it good quality audio.
-    Output:
-        A PyTorch Tensor in the format expect by WhisperSpeech
+    for profile in profiles:
+        profile_id = profile.get("id", "")
+        name = profile.get("name", "")
+        language = profile.get("language", "")
+        sample_count = profile.get("sample_count", 0)
+        print(f"{profile_id}\t{name}\t{language}\tsamples={sample_count}")
 
-    Notes:
-    Will also save to disk in ./audio_out/{spkrname}_profile.pt
-    '''
-    from pathlib import Path
-    audio_paths = []
-    if type(audio_files) in set([str, string, LiteralString]): audio_paths = [os.path.abspath(audio_files)]
-    else:
-        for pths in audio_files:
-            audio_paths.append(os.path.abspath(pths))
-    pardir = Path(audio_paths[0]).parent
-    os.makedirs(os.path.join(pardir, "audio_out"), exist_ok=True)
-    tmp_audio = AudioSegment.empty()
-    for pth in audio_paths:
-        tmp_audio = tmp_audio + AudioSegment.from_file(file=pth) + AudioSegment.silent(0.25)
-        if tmp_audio.duration_seconds > 40:
-            break
-    tmp_audio.export(os.path.join(pardir, "audio_out", "_tmp.mp3"), format="mp3")
-    print(f"Warning: less than 30 seconds sample audio provided for {spkrname}. Audio may be of lower quality than expected.") if tmp_audio.duration_seconds < 30 else None
 
-    pipe = Pipeline()
-    spkr_encoder = pipe.extract_spk_emb(os.path.join(pardir, "audio_out",  "_tmp.mp3"))
-    spkr_encoder.encoder = EncoderClassifier.from_hparams("speechbrain/spkrec-ecapa-voxceleb", savedir="~/.cache/speechbrain", run_opts={"device": "cpu"})
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        prog="generate_spkr_profile",
+        description="List local Voicebox profiles for ChatParser voice cloning.",
+    )
+    parser.add_argument(
+        "--voicebox-url",
+        default="http://127.0.0.1:17493",
+        help="Local Voicebox REST API base URL.",
+    )
+    args = parser.parse_args()
+    print_voicebox_profiles(args.voicebox_url)
 
-    torch.save(spkr_encoder, os.path.join(pardir,"audio_out", f"{spkrname}_profile.pt"))
-    os.remove(os.path.join(pardir, "audio_out", "_tmp.mp3"))
-    return spkr_encoder
+
+if __name__ == "__main__":
+    main()

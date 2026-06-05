@@ -1,6 +1,9 @@
 # ChatParser
 
-ChatParser is an MLX tool to transform the content of WhatsApp chat exports. 
+ChatParser is a local-first tool for transforming WhatsApp chat exports on macOS.
+It transcribes WhatsApp audio attachments through a locally running
+[Voicebox](https://github.com/jamiepine/voicebox) server and can generate cloned-voice
+audio from chat text through the same local Voicebox API.
 
 
 ## Description
@@ -15,7 +18,9 @@ The goal is that a user can interact with the chat export in multiple ways, by f
 parsing the chat and other data, then using various data transformation LLMs to create 
 something completely new.
 
-Eventually this will be built into a GUI front end.
+The repository now includes a SwiftUI macOS front end (`ChatParserMac`) plus the
+original Python transformer. The app runs the Python transformer from the
+project-local `.venv` and streams output into the macOS window.
 
 ## Getting Started
 
@@ -30,30 +35,47 @@ install and configure environments and what to install will be forthcoming in fu
 This only works for the iPhone version of WhatsApp (tested with iOS 17.4 and WhatsApp 24.6.77). 
 The chat export format is drastically different for the Android platform
 
-Install dependencies on Mac using:
+Create and use a project-local virtual environment. Do not install into global
+Python:
+
 ```bash
-pip install -r requirements.txt
+python3 -m venv .venv
+. .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
 ```
 
-Recommendation is that you install this in its own environment as this requires incorporation of code from very early sources. 
+Install and run Voicebox separately. ChatParser talks to Voicebox over its local
+REST API, normally `http://127.0.0.1:17493`.
 
 ### Installing
 
 1. Clone this repo `git clone https://github.com/sealad886/chatparser`
-1. Install dependenceies as above. **Note:** if you install `pip install whisper`, you will actually break this as that will take precendence over the local folder.
-1. Clone this repo too: `git clone https://github.com/ml-examples/mlx-examples`
+1. Create `.venv` and install dependencies as above.
+1. Install Voicebox from <https://github.com/jamiepine/voicebox> and start it.
+1. Confirm Voicebox is reachable:
 
 ```bash
-ln -s path/to/mlx-examples/whisper/ path/to/chatparser
-cd path/to/chatparser
-ls -al   # to confirm the symlink created correctly
+curl http://127.0.0.1:17493/health
+curl http://127.0.0.1:17493/profiles
 ```
-Note where the backslashes are above. Also note that whisper has a directory called whisper and then a file called whisper.py. So: `whisper/whisper/whisper.py`. That's supposed to be like that.
 
-This depends on the [mlx-community](https://huggingface.io/mlx-community) and specifically the Whisper scripts written for 
-[mlx-]
-* How/where to download your program
-* Any modifications needed to be made to files/folders
+Text transcription uses Voicebox `POST /transcribe`. Voice cloning/generation
+uses Voicebox `POST /generate`, polls `/generate/{id}/status`, and exports audio
+from `/history/{id}/export-audio`. A Voicebox profile id is required for
+text-to-audio generation.
+
+### Running the macOS app
+
+Build and launch the SwiftUI app:
+
+```bash
+./script/build_and_run.sh
+```
+
+The Codex app Run action is wired to the same script. The app lets you choose a
+WhatsApp export folder, select transcribe or generate-audio mode, configure the
+Voicebox URL/model/profile/language, and watch the Python process log.
 
 ### Executing program
 
@@ -63,15 +85,25 @@ an issue with semaphore locks.
 _This relies on the expected format of a WhatsApp Chat Export._
 
 To convert text to audio:
-```python
-python chatparser.py --to-type audio -i (/path/to/dir/of/dirs|/path/to/dir)
+```bash
+. .venv/bin/activate
+python chatparser.py \
+  --to-type audio \
+  --input-directory /path/to/export-or-parent \
+  --voicebox-profile <voicebox-profile-id>
 ```
-Note that this supports doing mass-file transformation. Simply save all your WhatsApp exports (unzipped!) into the same directory, and 
-ChatParser will loop through them all one-by-one. 
 
-To convert everything to test:
-```python
-python chatparser.py --to-type text -i (/path/to/dir/of/dirs|/path/to/dir) [-m|--model {small, medium, large-v1, etc}]
+Note that this supports mass-file transformation. Save all WhatsApp exports
+(unzipped) into the same directory and ChatParser loops through them one-by-one
+with progress reporting.
+
+To convert audio attachments to text:
+```bash
+. .venv/bin/activate
+python chatparser.py \
+  --to-type text \
+  --input-directory /path/to/export-or-parent \
+  --model whisper-turbo
 ```
 
 Make sure that your shell has read and write access to the given directory.
@@ -79,9 +111,21 @@ Make sure that your shell has read and write access to the given directory.
 ## Help
 
 Any advise for common problems or issues.
-* **Do not** install `pip install whisper` as that's not the package you need. You must copy the [mlx-examples](ml-exambles/))
-```
-command to run if program contains helper info
+* Do not install or symlink `whisper` for ChatParser. Voicebox owns ASR.
+* If transcription fails immediately, confirm Voicebox is running and reachable
+  at `VOICEBOX_BASE_URL` or the `--voicebox-url` value.
+* If generated audio fails, confirm `--voicebox-profile` is a real profile id
+  from `GET /profiles`.
+* If NLTK data is missing, ChatParser skips spell-correction and sends the raw
+  text to Voicebox.
+
+### Tests
+
+```bash
+. .venv/bin/activate
+python -m pytest
+swift build
+./script/build_and_run.sh --verify
 ```
 
 ## Authors
@@ -125,5 +169,4 @@ GitHub: [github.com/sealad886]
 - [ ] Multi-thread / Multiprocessing / Pool support
 - [ ] Handle situation where Location is not the first message in a series of messages.
 - [ ] Update all the LICENSE info to ensure GNU 3.0 license is compatible
-- [ ] Update this so that it doesn't rely on the ml-explore/mlx-examples version of whisper. Should be dependent on released/versioned code. 
-    
+- [x] Update this so that it does not rely on the ml-explore/mlx-examples version of Whisper.

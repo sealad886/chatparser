@@ -1,0 +1,11 @@
+*.pyc
+whisper
+.DS_Store
+.build/
+.locks/
+.venv/
+dist/
+.gitignore
+.vscode/launch.json
+voice-requirements.txt
+single_transcribe.py

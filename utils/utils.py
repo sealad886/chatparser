@@ -27,7 +27,10 @@ import emoji
 import nltk
 import nltk.data
 import spellchecker
-import torch
+try:
+    import torch
+except ModuleNotFoundError:
+    torch = None
 import os
 from collections import defaultdict
 
@@ -87,6 +90,8 @@ def _get_spkr_profile(spkrname, spkr_profiles, audio_folder):
     elif spkrname is not None:
         spkr_profile_filename = os.path.join(audio_folder, "audio_out", spkrname + "_profile.pt")
         if os.path.exists(spkr_profile_filename) and os.path.isfile(spkr_profile_filename):
+            if torch is None:
+                raise RuntimeError("Loading legacy speaker profiles requires torch.")
             spkr_profile = torch.load(os.path.join(audio_folder, "audio_out", spkrname + "_profile.pt"))
         else:
             spkr_profile = default_spkr_profile

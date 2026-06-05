@@ -25,13 +25,8 @@ import math
 from locale import getlocale
 from utils.deprecated import _deal_with_numbers
 from datetime import datetime, timedelta
+from pathlib import Path
 from tqdm import tqdm
-import mlx.core as mx
-import torch
-import torchaudio
-from whisper import whisper
-from whisperspeech.pipeline import Pipeline
-from pydub import AudioSegment
 import nltk, nltk.data, string
 import multiprocessing as mp
 from multiprocessing import Process, Queue, cpu_count
@@ -39,12 +34,8 @@ import concurrent.futures
 import inflect
 import json
 
-from utils.utils import _check_spelling, _get_spkr_profile, _replace_location
-
-from utils.deprecated import *
-from utils.in_development import *
-from utils.utils import *
-from utils.default_values import *
+from utils.utils import _check_spelling, _replace_location, debug_dict
+from voicebox_client import VoiceboxClient
 
 __MODEL_NAME = None
 __VERBOSE = None
@@ -61,6 +52,11 @@ punktChkr = None
 timings_measurement = None
 def_sample_rate = None
 cps = None
+__VOICEBOX_CLIENT = None
+__VOICEBOX_URL = None
+__VOICEBOX_MODEL = None
+__VOICEBOX_PROFILE = None
+__VOICEBOX_LANGUAGE = None
 
 def set_globals():
     global __MODEL_NAME
@@ -78,12 +74,20 @@ def set_globals():
     global timings_measurement
     global def_sample_rate
     global cps
+    global __VOICEBOX_CLIENT
+    global __VOICEBOX_URL
+    global __VOICEBOX_MODEL
+    global __VOICEBOX_PROFILE
+    global __VOICEBOX_LANGUAGE
 
     # because apparently semafore locks with multiprocessing are broken, we have to do this:
-    mp.set_start_method('fork')
+    try:
+        mp.set_start_method('fork')
+    except RuntimeError:
+        pass
     os.makedirs(".locks/", exist_ok=True)
     os.environ["TMPDIR"] = os.path.abspath(".locks")
-    __MODEL_NAME = "medium"
+    __MODEL_NAME = "whisper-turbo"
     __VERBOSE = False
     __PROGRESS_BAR = False
     __FORCE_REDO = False
@@ -93,7 +97,7 @@ def set_globals():
     q = Queue()
 
     p = inflect.engine()
-    pipe = Pipeline()
+    pipe = None
 
     workers = []
     wk_pool = None
@@ -103,6 +107,11 @@ def set_globals():
 
     def_sample_rate = 24000  # don't change this as this is what vocoder is set to, no way to change it currently -- voices get real fast / slow when bitrate changes without resampling, which is what would need to happen 
     cps = 15
+    __VOICEBOX_URL = "http://127.0.0.1:17493"
+    __VOICEBOX_MODEL = "whisper-turbo"
+    __VOICEBOX_PROFILE = None
+    __VOICEBOX_LANGUAGE = "en"
+    __VOICEBOX_CLIENT = VoiceboxClient(base_url=__VOICEBOX_URL)
 
 def remove_punctuation(input_str):
     # Create a translation table that maps each punctuation to None
@@ -113,7 +122,7 @@ def remove_punctuation(input_str):
     
     return no_punctuation_str
 
-def replace_terms(input_str, replacement_dict) -> torch.Tensor:
+def replace_terms(input_str, replacement_dict) -> str:
     # Iterate over the dictionary items
     input_str = input_str.lower()
     for find_text, replace_with in replacement_dict.items():
@@ -203,11 +212,7 @@ def process_chat_file_by_type(chat_file: str, audio_folder: str, model_prompt: s
         
         spkr_profiles = {}
         
-        if __ENABLE_TIMINGS: tt(['load_model_from_huggingface_start',now()])
-        model_dir = "mlx-community/whisper-"
-        model_dir = model_dir + __MODEL_NAME + "-mlx-4bit"
-        _ = whisper.load_models.load_model(model_dir, mx.float16)
-        if __ENABLE_TIMINGS: tt(['load_model_from_huggingface_stop',now()])
+        model_dir = __VOICEBOX_MODEL
 
         prev_datetime = None
         prepend_text = None
@@ -309,6 +314,8 @@ def _move_audio_file_mt(line, audio_folder, ctr, __VERBOSE) -> None:
     move_audio_file(line, audio_folder, ctr)
 
 def move_audio_file(line, audio_folder, ctr) -> None:
+    from pydub import AudioSegment
+
     audio_file = os.path.join(audio_folder, re.search(r"<attached:.+?>", line).group(0)[10:-1].strip())
     
     target_file = os.path.join(audio_folder, "audio_out", re.search(r"<attached:.+?>", line).group(0)[10:-1].strip())[:-4]+"mp3"
@@ -322,14 +329,17 @@ def move_audio_file(line, audio_folder, ctr) -> None:
 
 def line_to_audio(line, spkrname, date_time_str, audio_folder, ctr: str, spkr_profiles: dict = {}):
     day, mon, yr = date_time_str.split(",")[0].split("/")
+    os.makedirs(os.path.join(audio_folder, "audio_out"), exist_ok=True)
     audio_out_file = os.path.join(audio_folder, "audio_out", f"{str(ctr+1).zfill(8)}-AUDIO-{yr}-{mon}-{day}-auto-generated.mp3")
     if os.path.exists(audio_out_file) and os.path.isfile(audio_out_file):
         print(f"File exists: {audio_out_file}") if __VERBOSE else None
         return audio_out_file
 
-    global def_sample_rate
-    global cps
-    spkr_profile = _get_spkr_profile(spkrname=spkrname, spkr_profiles=spkr_profiles, audio_folder=audio_folder)
+    global __VOICEBOX_CLIENT
+    global __VOICEBOX_PROFILE
+    global __VOICEBOX_LANGUAGE
+    if __VOICEBOX_CLIENT is None:
+        __VOICEBOX_CLIENT = VoiceboxClient(base_url=__VOICEBOX_URL or "http://127.0.0.1:17493")
 
     print(f"Audio out file: {audio_out_file}") if __VERBOSE else None
     line_list = line.strip().split(" ")
@@ -354,7 +364,10 @@ def line_to_audio(line, spkrname, date_time_str, audio_folder, ctr: str, spkr_pr
         # spell check and inflect the whole sentence
         line_text = line_text.replace("`", "'")
         line_text = line_text.replace("O' ", "O'")
-        line_text = _check_spelling(line_text)
+        try:
+            line_text = _check_spelling(line_text)
+        except LookupError:
+            print("NLTK data unavailable; using uncorrected text for Voicebox generation.") if __VERBOSE else None
     
 
     # split a long text into pieces
@@ -364,10 +377,13 @@ def line_to_audio(line, spkrname, date_time_str, audio_folder, ctr: str, spkr_pr
     if len(sentence) < 8: sentence = f"Line was too short: {sentence}"
     print(f"  Sentence: {spkrname}: {sentence}\n")
     sentence = sentence if len(sentence.split(" ")) > 1 else sentence + " " + sentence
-    sent_audio = pipe.generate(sentence, spkr_profile, lang='en', cps=cps)
-    
-    with open(audio_out_file, "wb") as a:
-        torchaudio.save(a, sent_audio, def_sample_rate, format="mp3")
+    __VOICEBOX_CLIENT.generate_speech(
+        sentence,
+        Path(audio_out_file),
+        profile_id=__VOICEBOX_PROFILE,
+        language=__VOICEBOX_LANGUAGE,
+        profile=spkrname,
+    )
     sent_cnt += 1
     
     '''
@@ -387,34 +403,21 @@ def transcribe_audio_line(audio_folder, match, model_dir, model_prompt, date_tim
     # Extract the audio file name from the line
     audio_file = os.path.join(audio_folder, match.group(0)[10:-1].strip())
 
-    # Transcribe the audio file
-    if __VERBOSE:
-        result = whisper.transcribe(audio_file, path_or_hf_repo=model_dir, initial_prompt = model_prompt, verbose=__VERBOSE)
-    else:
-        result = whisper.transcribe(audio_file, path_or_hf_repo=model_dir, initial_prompt = model_prompt, verbose=None)
-    
-    avg_logprob_total = 0
-    line_logprob = 0
-    try:
-        for seg in range(0, len(result['segments'])):
-            avg_logprob_total += result['segments'][seg]['avg_logprob']
-        line_logprob = math.exp(avg_logprob_total / len(result['segments']))
-    except:
-        print("Unhandled error calculating percent confidence.") if __VERBOSE else None
-    
-    if line_logprob == 0:
-        line_logprob = "unk"
-    else:
-        line_logprob = line_logprob * 100
-        line_logprob = str(line_logprob)[0:5] + "%"
+    global __VOICEBOX_CLIENT
+    global __VOICEBOX_MODEL
+    if __VOICEBOX_CLIENT is None:
+        __VOICEBOX_CLIENT = VoiceboxClient(base_url=__VOICEBOX_URL or "http://127.0.0.1:17493")
+
+    result = __VOICEBOX_CLIENT.transcribe_audio(audio_file, model=__VOICEBOX_MODEL or model_dir)
+    language = result.language or "unk"
 
     # build the transcription line now
-    transcription = f"[{date_time_str}] {spkrname}: [Transcribed]:{result['text']} ({result['language']}) (conf: {line_logprob}) [File: {os.path.basename(audio_file)}]\n"
+    transcription = f"[{date_time_str}] {spkrname}: [Transcribed]: {result.text} ({language}) [File: {os.path.basename(audio_file)}]\n"
 
     # Print the result to stdout
     print(f"Transcription (line {i}):\n{transcription}") if __VERBOSE else None
 
-    #file_out.append(transcription)
+    file_out.append(transcription)
     return transcription
 
 
@@ -429,23 +432,27 @@ def process_directories(directory: str, model_input: str, to_type: str, num_work
         print(f"{directory} is not a valid directory.")
         return
     
+    chat_paths = []
     for root, _, files in os.walk(directory):
         for file in files:
             if file == "_chat.txt":
-                file_out = []
-                try:
-                    chat_file = os.path.join(root, file)
-                    if num_workers:
-                        print("Multi-threading support not implemented. Defaulting to normal process")
-                        # process_chat_file_by_type_mt(chat_file, root, model_input, file_out, to_type=to_type, num_workers=num_workers)
-                        process_chat_file_by_type(chat_file, root, model_input, file_out, to_type=to_type)
-                    else:
-                        process_chat_file_by_type(chat_file, root, model_input, file_out, to_type=to_type)
-                except KeyboardInterrupt:
-                    error_out = [f"Transcription interrupted at: {datetime.now()}"]
-                    for line in file_out:
-                        error_out.append(line)
-                    cleanup_end(os.path.join(root, "_transcription_interrupted.txt"), error_out)
+                chat_paths.append((root, file))
+
+    for root, file in tqdm(chat_paths, desc="WhatsApp exports", total=len(chat_paths), dynamic_ncols=True, disable=not __PROGRESS_BAR):
+        file_out = []
+        try:
+            chat_file = os.path.join(root, file)
+            if num_workers:
+                print("Multi-threading support not implemented. Defaulting to normal process")
+                # process_chat_file_by_type_mt(chat_file, root, model_input, file_out, to_type=to_type, num_workers=num_workers)
+                process_chat_file_by_type(chat_file, root, model_input, file_out, to_type=to_type)
+            else:
+                process_chat_file_by_type(chat_file, root, model_input, file_out, to_type=to_type)
+        except KeyboardInterrupt:
+            error_out = [f"Transcription interrupted at: {datetime.now()}"]
+            for line in file_out:
+                error_out.append(line)
+            cleanup_end(os.path.join(root, "_transcription_interrupted.txt"), error_out)
 
 # a simple function to get parser to do some of the input validation for us
 def __parser_allowed_dir(input):
@@ -459,12 +466,27 @@ if __name__ == "__main__":
         prog="chatparser", 
         description="Process WhatsApp Messenger exported chats and transcribe audio messages, creating one text file.")
     parser.add_argument(
-        "-m", 
-        "--model", 
+        "-m",
+        "--model",
         type=str, 
-        default="medium",
-        choices=["tiny", "tiny.en", "base", "base.en", "small", "small.en", "medium", "medium.en", "large", "large-v1", "large-v2", "large-v3"],
-        help="The Whisper model to use (tiny, base, small, medium, large, large-v1)")
+        default="whisper-turbo",
+        choices=["whisper-base", "whisper-small", "whisper-medium", "whisper-large", "whisper-turbo"],
+        help="The Voicebox transcription model to request.")
+    parser.add_argument(
+        "--voicebox-url",
+        type=str,
+        default="http://127.0.0.1:17493",
+        help="Local Voicebox REST API base URL.")
+    parser.add_argument(
+        "--voicebox-profile",
+        type=str,
+        default=None,
+        help="Optional Voicebox voice profile id for generated speech.")
+    parser.add_argument(
+        "--voicebox-language",
+        type=str,
+        default="en",
+        help="Language code to send to Voicebox for generated speech.")
     parser.add_argument(
         "-i", 
         "--input-directory", 
@@ -544,6 +566,11 @@ if __name__ == "__main__":
         model_input = f"The locale of the user owning this audio file is {locale}, so assume a higher likelihood that speech is in the language and accent common to that locale."
 
     __MODEL_NAME = args.model
+    __VOICEBOX_URL = args.voicebox_url
+    __VOICEBOX_MODEL = args.model
+    __VOICEBOX_PROFILE = args.voicebox_profile
+    __VOICEBOX_LANGUAGE = args.voicebox_language
+    __VOICEBOX_CLIENT = VoiceboxClient(base_url=__VOICEBOX_URL)
     __NUM_WORKERS = __NUM_WORKERS if __NUM_WORKERS is not None and __NUM_WORKERS > 1 else None
 
     # this for-loop handles multiple --input-directory uses in the CLI
@@ -555,5 +582,3 @@ if __name__ == "__main__":
             with open(os.path.join(dir, "_debug_dict.json"), 'a') as f:
                 json.dump(debug_dict,f)
     if __ENABLE_TIMINGS: print(json.dumps(timings_measurement))
-
-

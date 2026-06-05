@@ -20,7 +20,10 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 # ---------------------------
 #
-import torch
+try:
+    import torch
+except ModuleNotFoundError:
+    torch = None
 
 
 replacement_dict = {
@@ -95,4 +98,4 @@ default_spkr_profile = torch.tensor(
          43.9724,  30.6890, -15.3496, -10.0466,   4.9025,  38.8629,  -2.4365,
         -23.2030, -16.8381,  -9.2210, -39.2661,  36.5700,   3.9311, -20.3710,
          11.8976,   2.5863, -22.2250]
-    )
+    ) if torch is not None else None
