@@ -14,6 +14,7 @@ final class AppState: ObservableObject {
         guard configuration.inputDirectory != nil, !isRunning else { return false }
         if configuration.mode == .synthesizeToAudio {
             return !configuration.profileID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                || !configuration.profileMap.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
         return true
     }

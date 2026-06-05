@@ -65,6 +65,20 @@ uses Voicebox `POST /generate`, polls `/generate/{id}/status`, and exports audio
 from `/history/{id}/export-audio`. A Voicebox profile id is required for
 text-to-audio generation.
 
+To create a cloned Voicebox profile from local audio files:
+
+```bash
+. .venv/bin/activate
+python utils/generate_spkr_profile.py \
+  --create-profile "Alice" \
+  --sample /path/to/alice-voice-note.m4a \
+  --reference-text "Exact words spoken in the sample" \
+  --description "Alice WhatsApp samples"
+```
+
+The command prints the new Voicebox profile id. For several samples, repeat
+`--sample` and `--reference-text` in matching order.
+
 ### Running the macOS app
 
 Build and launch the SwiftUI app:
@@ -93,6 +107,35 @@ python chatparser.py \
   --voicebox-profile <voicebox-profile-id>
 ```
 
+For whole-chat transforms with different speakers, map WhatsApp display names to
+Voicebox profile ids:
+
+```bash
+python chatparser.py \
+  --to-type audio \
+  --input-directory /path/to/export-or-parent \
+  --voicebox-profile-map "Alice=<alice-profile-id>" \
+  --voicebox-profile-map "Bob=<bob-profile-id>"
+```
+
+You can also store the mapping as JSON:
+
+```json
+{
+  "Alice": "alice-profile-id",
+  "Bob": "bob-profile-id"
+}
+```
+
+Then run:
+
+```bash
+python chatparser.py \
+  --to-type audio \
+  --input-directory /path/to/export-or-parent \
+  --voicebox-profile-map-file profiles.json
+```
+
 Note that this supports mass-file transformation. Save all WhatsApp exports
 (unzipped) into the same directory and ChatParser loops through them one-by-one
 with progress reporting.
@@ -114,8 +157,8 @@ Any advise for common problems or issues.
 * Do not install or symlink `whisper` for ChatParser. Voicebox owns ASR.
 * If transcription fails immediately, confirm Voicebox is running and reachable
   at `VOICEBOX_BASE_URL` or the `--voicebox-url` value.
-* If generated audio fails, confirm `--voicebox-profile` is a real profile id
-  from `GET /profiles`.
+* If generated audio fails, confirm `--voicebox-profile` or each
+  `--voicebox-profile-map` value is a real profile id from `GET /profiles`.
 * If NLTK data is missing, ChatParser skips spell-correction and sends the raw
   text to Voicebox.
 

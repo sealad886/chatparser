@@ -52,6 +52,60 @@ def test_transcribe_audio_posts_multipart_audio_and_model(tmp_path):
     assert b"audio-bytes" in captured["body"]
 
 
+def test_create_voice_profile_posts_cloned_profile_payload():
+    captured = {}
+
+    def opener(request, timeout):
+        captured["url"] = request.full_url
+        captured["payload"] = json.loads(request.data.decode("utf-8"))
+        return FakeResponse(200, {"id": "profile-123", "name": "Alice", "language": "en"})
+
+    client = VoiceboxClient(base_url="http://127.0.0.1:17493", opener=opener)
+
+    profile = client.create_voice_profile("Alice", language="en", description="WhatsApp samples")
+
+    assert profile["id"] == "profile-123"
+    assert captured["url"] == "http://127.0.0.1:17493/profiles"
+    assert captured["payload"] == {
+        "name": "Alice",
+        "description": "WhatsApp samples",
+        "language": "en",
+        "voice_type": "cloned",
+    }
+
+
+def test_add_profile_sample_posts_local_audio_and_reference_text(tmp_path):
+    sample_file = tmp_path / "alice.m4a"
+    sample_file.write_bytes(b"sample-audio")
+    captured = {}
+
+    def opener(request, timeout):
+        captured["url"] = request.full_url
+        captured["body"] = request.data
+        captured["headers"] = dict(request.header_items())
+        return FakeResponse(
+            200,
+            {
+                "id": "sample-123",
+                "profile_id": "profile-123",
+                "audio_path": "profiles/profile-123/sample.wav",
+                "reference_text": "hello there",
+            },
+        )
+
+    client = VoiceboxClient(base_url="http://127.0.0.1:17493", opener=opener)
+
+    sample = client.add_profile_sample("profile-123", sample_file, "hello there")
+
+    assert sample["id"] == "sample-123"
+    assert captured["url"] == "http://127.0.0.1:17493/profiles/profile-123/samples"
+    assert "multipart/form-data" in captured["headers"]["Content-type"]
+    assert b'name="reference_text"' in captured["body"]
+    assert b"hello there" in captured["body"]
+    assert b'name="file"; filename="alice.m4a"' in captured["body"]
+    assert b"sample-audio" in captured["body"]
+
+
 def test_generate_speech_polls_and_exports_audio_to_output_path(tmp_path):
     output_file = tmp_path / "speech.mp3"
     captured = []

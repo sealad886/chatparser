@@ -58,6 +58,7 @@ def test_line_to_audio_generates_speech_through_voicebox(tmp_path, monkeypatch):
     fake_client = FakeVoiceboxClient()
     monkeypatch.setattr(chatparser, "__VOICEBOX_CLIENT", fake_client)
     monkeypatch.setattr(chatparser, "__VOICEBOX_PROFILE", "voice-123")
+    monkeypatch.setattr(chatparser, "__VOICEBOX_PROFILE_MAP", {})
     monkeypatch.setattr(chatparser, "__VOICEBOX_LANGUAGE", "en")
     monkeypatch.setattr(chatparser, "__VERBOSE", False)
 
@@ -81,3 +82,35 @@ def test_line_to_audio_generates_speech_through_voicebox(tmp_path, monkeypatch):
             "profile": "Alice",
         }
     ]
+
+
+def test_line_to_audio_uses_speaker_profile_mapping(tmp_path, monkeypatch):
+    fake_client = FakeVoiceboxClient()
+    monkeypatch.setattr(chatparser, "__VOICEBOX_CLIENT", fake_client)
+    monkeypatch.setattr(chatparser, "__VOICEBOX_PROFILE", "fallback-profile")
+    monkeypatch.setattr(chatparser, "__VOICEBOX_PROFILE_MAP", {"Alice": "alice-profile"})
+    monkeypatch.setattr(chatparser, "__VOICEBOX_LANGUAGE", "en")
+    monkeypatch.setattr(chatparser, "__VERBOSE", False)
+
+    chatparser.line_to_audio(
+        "Voice mapped text",
+        "Alice",
+        "01/02/2024, 18:30:00",
+        str(tmp_path),
+        6,
+        {},
+    )
+
+    assert fake_client.generated[0]["profile_id"] == "alice-profile"
+
+
+def test_parse_voicebox_profile_map_merges_json_and_cli_entries(tmp_path):
+    mapping_file = tmp_path / "profiles.json"
+    mapping_file.write_text('{"Alice": "alice-profile"}')
+
+    result = chatparser.parse_voicebox_profile_map(
+        ["Bob=bob-profile"],
+        str(mapping_file),
+    )
+
+    assert result == {"Alice": "alice-profile", "Bob": "bob-profile"}

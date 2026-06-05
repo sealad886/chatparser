@@ -6,6 +6,7 @@ struct RunConfiguration: Equatable {
     var voiceboxURL: String = "http://127.0.0.1:17493"
     var model: String = "whisper-turbo"
     var profileID: String = ""
+    var profileMap: String = ""
     var language: String = "en"
     var forceRedo: Bool = false
     var showProgress: Bool = true
@@ -23,6 +24,11 @@ struct RunConfiguration: Equatable {
         if !profileID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             args += ["--voicebox-profile", profileID]
         }
+        profileMap
+            .split(separator: "\n")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .forEach { args += ["--voicebox-profile-map", $0] }
         if forceRedo {
             args.append("--force-redo")
         }

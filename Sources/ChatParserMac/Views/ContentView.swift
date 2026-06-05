@@ -67,8 +67,19 @@ private struct DetailView: View {
                     TextField("Transcription model", text: $state.configuration.model)
                     TextField("Voice profile id", text: $state.configuration.profileID)
                     TextField("Language", text: $state.configuration.language)
-                    if state.configuration.mode == .synthesizeToAudio && state.configuration.profileID.isEmpty {
-                        Text("Voice profile id is required for generated audio.")
+                    TextEditor(text: $state.configuration.profileMap)
+                        .font(.system(.body, design: .monospaced))
+                        .frame(minHeight: 70)
+                        .overlay(alignment: .topLeading) {
+                            if state.configuration.profileMap.isEmpty {
+                                Text("Alice=voice-profile-id")
+                                    .foregroundStyle(.tertiary)
+                                    .padding(.top, 8)
+                                    .padding(.leading, 5)
+                            }
+                        }
+                    if state.configuration.mode == .synthesizeToAudio && !state.canRun {
+                        Text("Generated audio requires either a fallback profile id or one speaker=profile-id mapping.")
                             .font(.callout)
                             .foregroundStyle(.secondary)
                     }

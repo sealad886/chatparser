@@ -46,6 +46,37 @@ class VoiceboxClient:
             return profiles if isinstance(profiles, list) else []
         return []
 
+    def create_voice_profile(
+        self,
+        name: str,
+        language: str = "en",
+        description: str | None = None,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "name": name,
+            "description": description,
+            "language": language,
+            "voice_type": "cloned",
+        }
+        response = self._json_request("POST", "/profiles", payload=payload)
+        if not isinstance(response, dict):
+            raise VoiceboxError("Voicebox /profiles returned an unexpected response")
+        return response
+
+    def add_profile_sample(
+        self,
+        profile_id: str,
+        audio_path: str | Path,
+        reference_text: str,
+    ) -> dict[str, Any]:
+        path = Path(audio_path)
+        headers, body = self._multipart_body({"reference_text": reference_text}, {"file": path})
+        response = self._request("POST", f"/profiles/{profile_id}/samples", data=body, headers=headers)
+        payload = self._decode_json(response)
+        if not isinstance(payload, dict):
+            raise VoiceboxError("Voicebox profile sample upload returned an unexpected response")
+        return payload
+
     def transcribe_audio(self, audio_path: str | Path, model: str = "whisper-turbo") -> TranscriptionResult:
         path = Path(audio_path)
         fields = {"model": model}

@@ -56,6 +56,7 @@ __VOICEBOX_CLIENT = None
 __VOICEBOX_URL = None
 __VOICEBOX_MODEL = None
 __VOICEBOX_PROFILE = None
+__VOICEBOX_PROFILE_MAP = None
 __VOICEBOX_LANGUAGE = None
 
 def set_globals():
@@ -78,6 +79,7 @@ def set_globals():
     global __VOICEBOX_URL
     global __VOICEBOX_MODEL
     global __VOICEBOX_PROFILE
+    global __VOICEBOX_PROFILE_MAP
     global __VOICEBOX_LANGUAGE
 
     # because apparently semafore locks with multiprocessing are broken, we have to do this:
@@ -110,6 +112,7 @@ def set_globals():
     __VOICEBOX_URL = "http://127.0.0.1:17493"
     __VOICEBOX_MODEL = "whisper-turbo"
     __VOICEBOX_PROFILE = None
+    __VOICEBOX_PROFILE_MAP = {}
     __VOICEBOX_LANGUAGE = "en"
     __VOICEBOX_CLIENT = VoiceboxClient(base_url=__VOICEBOX_URL)
 
@@ -337,9 +340,11 @@ def line_to_audio(line, spkrname, date_time_str, audio_folder, ctr: str, spkr_pr
 
     global __VOICEBOX_CLIENT
     global __VOICEBOX_PROFILE
+    global __VOICEBOX_PROFILE_MAP
     global __VOICEBOX_LANGUAGE
     if __VOICEBOX_CLIENT is None:
         __VOICEBOX_CLIENT = VoiceboxClient(base_url=__VOICEBOX_URL or "http://127.0.0.1:17493")
+    profile_id = (__VOICEBOX_PROFILE_MAP or {}).get(spkrname) or __VOICEBOX_PROFILE
 
     print(f"Audio out file: {audio_out_file}") if __VERBOSE else None
     line_list = line.strip().split(" ")
@@ -380,7 +385,7 @@ def line_to_audio(line, spkrname, date_time_str, audio_folder, ctr: str, spkr_pr
     __VOICEBOX_CLIENT.generate_speech(
         sentence,
         Path(audio_out_file),
-        profile_id=__VOICEBOX_PROFILE,
+        profile_id=profile_id,
         language=__VOICEBOX_LANGUAGE,
         profile=spkrname,
     )
@@ -425,6 +430,25 @@ def cleanup_end(processed_file: str, file_out: list) -> None:
     with open(processed_file, "w") as f:
         for line in file_out:
             f.write(line)
+
+def parse_voicebox_profile_map(items: list[str] | None, json_file: str | None = None) -> dict[str, str]:
+    profile_map: dict[str, str] = {}
+    if json_file:
+        with open(json_file, "r") as f:
+            loaded = json.load(f)
+        if not isinstance(loaded, dict):
+            raise ValueError("--voicebox-profile-map-file must contain a JSON object")
+        profile_map.update({str(k): str(v) for k, v in loaded.items()})
+    for item in items or []:
+        if "=" not in item:
+            raise ValueError("--voicebox-profile-map entries must use Speaker=profile-id")
+        speaker, profile_id = item.split("=", 1)
+        speaker = speaker.strip()
+        profile_id = profile_id.strip()
+        if not speaker or not profile_id:
+            raise ValueError("--voicebox-profile-map entries must include both speaker and profile id")
+        profile_map[speaker] = profile_id
+    return profile_map
 
 def process_directories(directory: str, model_input: str, to_type: str, num_workers: int = None) -> None:
     # Process all _chat.txt files in a directory and its subdirectories 
@@ -481,7 +505,17 @@ if __name__ == "__main__":
         "--voicebox-profile",
         type=str,
         default=None,
-        help="Optional Voicebox voice profile id for generated speech.")
+        help="Fallback Voicebox voice profile id for generated speech.")
+    parser.add_argument(
+        "--voicebox-profile-map",
+        action="append",
+        default=None,
+        help="Speaker-to-Voicebox profile mapping as 'Speaker Name=profile-id'. Can be used multiple times.")
+    parser.add_argument(
+        "--voicebox-profile-map-file",
+        type=str,
+        default=None,
+        help="JSON object mapping WhatsApp speaker display names to Voicebox profile ids.")
     parser.add_argument(
         "--voicebox-language",
         type=str,
@@ -569,6 +603,7 @@ if __name__ == "__main__":
     __VOICEBOX_URL = args.voicebox_url
     __VOICEBOX_MODEL = args.model
     __VOICEBOX_PROFILE = args.voicebox_profile
+    __VOICEBOX_PROFILE_MAP = parse_voicebox_profile_map(args.voicebox_profile_map, args.voicebox_profile_map_file)
     __VOICEBOX_LANGUAGE = args.voicebox_language
     __VOICEBOX_CLIENT = VoiceboxClient(base_url=__VOICEBOX_URL)
     __NUM_WORKERS = __NUM_WORKERS if __NUM_WORKERS is not None and __NUM_WORKERS > 1 else None
