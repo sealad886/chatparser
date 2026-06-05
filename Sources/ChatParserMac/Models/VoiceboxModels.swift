@@ -1,0 +1,73 @@
+import Foundation
+
+struct VoiceProfile: Codable, Identifiable, Equatable {
+    let id: String
+    var name: String
+    var description: String?
+    var language: String
+    var voiceType: String
+    var defaultEngine: String?
+    var personality: String?
+    var generationCount: Int?
+    var sampleCount: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case description
+        case language
+        case voiceType = "voice_type"
+        case defaultEngine = "default_engine"
+        case personality
+        case generationCount = "generation_count"
+        case sampleCount = "sample_count"
+    }
+}
+
+struct ProfileSample: Codable, Identifiable, Equatable {
+    let id: String
+    let profileID: String
+    let audioPath: String
+    var referenceText: String
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case profileID = "profile_id"
+        case audioPath = "audio_path"
+        case referenceText = "reference_text"
+    }
+}
+
+struct GenerationResponse: Codable, Equatable {
+    let id: String
+    let profileID: String
+    let text: String
+    let language: String
+    let status: String?
+    let audioPath: String?
+    let error: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case profileID = "profile_id"
+        case text
+        case language
+        case status
+        case audioPath = "audio_path"
+        case error
+    }
+}
+
+struct GenerationStatus: Codable, Equatable {
+    let id: String?
+    let status: String
+    let audioPath: String?
+    let error: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case status
+        case audioPath = "audio_path"
+        case error
+    }
+}
