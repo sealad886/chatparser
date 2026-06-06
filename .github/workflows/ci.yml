@@ -18,7 +18,7 @@ jobs:
           python -m venv .venv
           . .venv/bin/activate
           python -m pip install --upgrade pip
-          python -m pip install pytest pydub inflect nltk pyspellchecker emoji geopy
+          python -m pip install -r requirements.txt
       - name: Run Python tests
         run: |
           . .venv/bin/activate
