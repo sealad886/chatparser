@@ -67,7 +67,7 @@ final class VoiceboxAPI {
     }
 
     func addSample(profileID: String, fileURL: URL, referenceText: String) async throws -> ProfileSample {
-        let body = try multipartBody(
+        let body = try await multipartBody(
             fields: ["reference_text": referenceText],
             files: [MultipartFile(fieldName: "file", url: fileURL)]
         )
@@ -196,7 +196,7 @@ private struct MultipartBody {
     let data: Data
 }
 
-private func multipartBody(fields: [String: String], files: [MultipartFile]) throws -> MultipartBody {
+private func multipartBody(fields: [String: String], files: [MultipartFile]) async throws -> MultipartBody {
     let boundary = "----ChatParserMac-\(UUID().uuidString)"
     var data = Data()
 
@@ -209,10 +209,13 @@ private func multipartBody(fields: [String: String], files: [MultipartFile]) thr
     for file in files {
         let filename = file.url.lastPathComponent
         let contentType = contentType(for: file.url)
+        let fileData = try await Task.detached(priority: .userInitiated) {
+            try Data(contentsOf: file.url)
+        }.value
         data.append("--\(boundary)\r\n")
         data.append("Content-Disposition: form-data; name=\"\(file.fieldName)\"; filename=\"\(filename)\"\r\n")
         data.append("Content-Type: \(contentType)\r\n\r\n")
-        data.append(try Data(contentsOf: file.url))
+        data.append(fileData)
         data.append("\r\n")
     }
 

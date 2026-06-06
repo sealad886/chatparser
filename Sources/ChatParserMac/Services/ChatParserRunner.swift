@@ -42,6 +42,7 @@ final class ChatParserRunner {
         do {
             try process.run()
         } catch {
+            outputPipe.fileHandleForReading.readabilityHandler = nil
             onOutput("Failed to start ChatParser: \(error.localizedDescription)\n")
             onTermination(127)
         }

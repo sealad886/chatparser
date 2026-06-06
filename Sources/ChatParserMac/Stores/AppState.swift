@@ -72,20 +72,26 @@ final class AppState: ObservableObject {
 
     func loadChatExport() {
         guard let inputDirectory = configuration.inputDirectory else { return }
-        do {
-            let messages = try parser.parseExport(at: inputDirectory)
-            chatMessages = messages
-            chatParticipants = Array(Set(messages.compactMap(\.speaker))).sorted()
-            if meParticipant.isEmpty || !chatParticipants.contains(meParticipant) {
-                meParticipant = chatParticipants.first ?? ""
+        chatMessage = "Loading chat export..."
+        let parser = self.parser
+        Task {
+            do {
+                let messages = try await Task.detached(priority: .userInitiated) {
+                    try parser.parseExport(at: inputDirectory)
+                }.value
+                self.chatMessages = messages
+                self.chatParticipants = Array(Set(messages.compactMap(\.speaker))).sorted()
+                if self.meParticipant.isEmpty || !self.chatParticipants.contains(self.meParticipant) {
+                    self.meParticipant = self.chatParticipants.first ?? ""
+                }
+                self.selectedChatMessageID = messages.first?.id
+                self.chatMessage = "Loaded \(messages.count) messages"
+            } catch {
+                self.chatMessages = []
+                self.chatParticipants = []
+                self.selectedChatMessageID = nil
+                self.chatMessage = error.localizedDescription
             }
-            selectedChatMessageID = messages.first?.id
-            chatMessage = "Loaded \(messages.count) messages"
-        } catch {
-            chatMessages = []
-            chatParticipants = []
-            selectedChatMessageID = nil
-            chatMessage = error.localizedDescription
         }
     }
 

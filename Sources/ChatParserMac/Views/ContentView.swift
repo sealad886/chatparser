@@ -359,6 +359,7 @@ private struct VoiceboxSettingsForm: View {
                                 .foregroundStyle(.tertiary)
                                 .padding(.top, 8)
                                 .padding(.leading, 5)
+                                .allowsHitTesting(false)
                         }
                     }
                 if state.configuration.mode == .synthesizeToAudio && !state.canRun {

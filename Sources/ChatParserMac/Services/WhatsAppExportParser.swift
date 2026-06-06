@@ -1,6 +1,32 @@
 import Foundation
 
-struct WhatsAppExportParser {
+struct WhatsAppExportParser: Sendable {
+    private static let timestampFormats = [
+        "dd/MM/yyyy, HH:mm:ss",
+        "dd/MM/yyyy, HH:mm",
+        "dd/MM/yy, HH:mm:ss",
+        "dd/MM/yy, HH:mm",
+        "dd/MM/yyyy, h:mm:ss a",
+        "dd/MM/yyyy, h:mm a",
+        "dd/MM/yy, h:mm:ss a",
+        "dd/MM/yy, h:mm a",
+        "MM/dd/yyyy, h:mm:ss a",
+        "MM/dd/yyyy, h:mm a",
+        "MM/dd/yy, h:mm:ss a",
+        "MM/dd/yy, h:mm a",
+        "MM/dd/yyyy, HH:mm:ss",
+        "MM/dd/yyyy, HH:mm",
+        "MM/dd/yy, HH:mm:ss",
+        "MM/dd/yy, HH:mm"
+    ]
+
+    private static let formatters: [DateFormatter] = timestampFormats.map { format in
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = format
+        return formatter
+    }
+
     func parseExport(at folder: URL) throws -> [ChatMessage] {
         let chatFile = try findChatFile(in: folder)
         let raw = try String(contentsOf: chatFile, encoding: .utf8)
@@ -111,28 +137,7 @@ struct WhatsAppExportParser {
     private func parseTimestamp(_ value: String) -> Date? {
         let normalized = value.replacingOccurrences(of: "\u{202f}", with: " ")
             .replacingOccurrences(of: "\u{00a0}", with: " ")
-        let formats = [
-            "dd/MM/yyyy, HH:mm:ss",
-            "dd/MM/yyyy, HH:mm",
-            "dd/MM/yy, HH:mm:ss",
-            "dd/MM/yy, HH:mm",
-            "dd/MM/yyyy, h:mm:ss a",
-            "dd/MM/yyyy, h:mm a",
-            "dd/MM/yy, h:mm:ss a",
-            "dd/MM/yy, h:mm a",
-            "MM/dd/yyyy, h:mm:ss a",
-            "MM/dd/yyyy, h:mm a",
-            "MM/dd/yy, h:mm:ss a",
-            "MM/dd/yy, h:mm a",
-            "MM/dd/yyyy, HH:mm:ss",
-            "MM/dd/yyyy, HH:mm",
-            "MM/dd/yy, HH:mm:ss",
-            "MM/dd/yy, HH:mm"
-        ]
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        for format in formats {
-            formatter.dateFormat = format
+        for formatter in Self.formatters {
             if let date = formatter.date(from: normalized) {
                 return date
             }

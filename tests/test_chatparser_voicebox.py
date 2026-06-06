@@ -114,3 +114,38 @@ def test_parse_voicebox_profile_map_merges_json_and_cli_entries(tmp_path):
     )
 
     assert result == {"Alice": "alice-profile", "Bob": "bob-profile"}
+
+
+def test_audio_export_uses_first_speaker_profile_mapping(tmp_path, monkeypatch):
+    export_dir = tmp_path / "export"
+    export_dir.mkdir()
+    chat_file = export_dir / "_chat.txt"
+    chat_file.write_text(
+        "[01/02/2024, 18:30:00] Alice: Meet at the station\n"
+        "[01/02/2024, 18:31:00] Alice: Bring the tickets\n",
+        encoding="utf-8",
+    )
+    fake_client = FakeVoiceboxClient()
+    monkeypatch.setattr(chatparser, "__VOICEBOX_CLIENT", fake_client)
+    monkeypatch.setattr(chatparser, "__VOICEBOX_PROFILE", None)
+    monkeypatch.setattr(chatparser, "__VOICEBOX_PROFILE_MAP", {"Alice": "alice-profile"})
+    monkeypatch.setattr(chatparser, "__VOICEBOX_LANGUAGE", "en")
+    monkeypatch.setattr(chatparser, "__FORCE_REDO", True)
+    monkeypatch.setattr(chatparser, "__PROGRESS_BAR", False)
+    monkeypatch.setattr(chatparser, "__VERBOSE", False)
+    monkeypatch.setattr(chatparser, "__ENABLE_TIMINGS", False)
+    monkeypatch.setattr(chatparser, "__NUM_WORKERS", 1)
+    monkeypatch.setattr(chatparser, "q", chatparser.Queue())
+    monkeypatch.setattr(chatparser, "workers", [])
+
+    chatparser.process_chat_file_by_type(
+        str(chat_file),
+        str(export_dir),
+        "",
+        [],
+        to_type="audio",
+    )
+
+    assert fake_client.generated
+    assert fake_client.generated[0]["profile_id"] == "alice-profile"
+    assert fake_client.generated[0]["profile"] == "Alice"

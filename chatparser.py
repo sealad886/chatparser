@@ -327,7 +327,7 @@ def process_chat_file_by_type(chat_file: str, audio_folder: str, model_prompt: s
         prev_datetime = None
         prepend_text = None
         append_text = None
-        prev_spkr = ""
+        prev_spkr = None
         cur_spkr_lines, prev_spr_lines = [], []
 
         chat_num = 0 # will use this to account for multi-lines chats
@@ -384,20 +384,29 @@ def process_chat_file_by_type(chat_file: str, audio_folder: str, model_prompt: s
                 # to audio by line, generate each line individually
                 os.makedirs(os.path.join(audio_folder, "audio_out"), exist_ok=True)
 
+                if prev_spkr is None:
+                    prev_spkr = spkrname
+
                 # actually generate the audio file for lines
-                if lastline or (prev_spkr != spkrname and not firstline):
+                if prev_spkr != spkrname:
                     spkr_multi_lines = ". ".join(prev_spr_lines)
                     #
                     # this is adding to pool
                     #
                     #wkrs.append(wk_pool.submit(line_to_audio, spkr_multi_lines, prev_spkr, date_time_str, audio_folder, chat_num, spkr_profiles))
-                    line_to_audio(spkr_multi_lines, prev_spkr, date_time_str, audio_folder, chat_num, spkr_profiles)
+                    if spkr_multi_lines:
+                        line_to_audio(spkr_multi_lines, prev_spkr or "", date_time_str, audio_folder, chat_num, spkr_profiles)
                     prev_spkr = spkrname
                     prev_spr_lines.clear()
                     for ln in cur_spkr_lines: prev_spr_lines.append(ln)
                     cur_spkr_lines.clear()
                     print(f"Done making audio for chat {chat_num}\n") if __VERBOSE else None
                 prev_spr_lines.append(line)
+                if lastline:
+                    spkr_multi_lines = ". ".join(prev_spr_lines)
+                    if spkr_multi_lines:
+                        line_to_audio(spkr_multi_lines, prev_spkr or spkrname or "", date_time_str, audio_folder, chat_num, spkr_profiles)
+                    prev_spr_lines.clear()
 
                 prepend_text = None
             else:

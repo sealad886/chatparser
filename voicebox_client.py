@@ -117,7 +117,8 @@ class VoiceboxClient:
 
         self._wait_for_generation(str(generation_id), poll_interval, max_wait_seconds)
         export_response = self._request("GET", f"/history/{generation_id}/export-audio")
-        body = export_response.read()
+        with export_response:
+            body = export_response.read()
         destination = Path(output_path)
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_bytes(body)
@@ -160,11 +161,12 @@ class VoiceboxClient:
             raise VoiceboxError(f"{endpoint} failed: {exc.reason}") from exc
 
     def _decode_json(self, response: Any) -> dict[str, Any] | list[Any]:
-        try:
-            body = response.read().decode("utf-8")
-            decoded = json.loads(body) if body else {}
-        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-            raise VoiceboxError("Voicebox returned a non-JSON response") from exc
+        with response:
+            try:
+                body = response.read().decode("utf-8")
+                decoded = json.loads(body) if body else {}
+            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                raise VoiceboxError("Voicebox returned a non-JSON response") from exc
         if not isinstance(decoded, (dict, list)):
             raise VoiceboxError("Voicebox returned an unexpected JSON shape")
         return decoded
