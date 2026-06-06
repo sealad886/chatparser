@@ -130,7 +130,7 @@ erDiagram
 | attachment_id | UUID | Yes | Source attachment. |
 | job_run_id | UUID | Yes | Producing job. |
 | voicebox_url | Text | Yes | Expected value `http://127.0.0.1:17493/transcribe`. |
-| voicebox_model | Text | Yes | Model form field, for example `whisper-turbo`. |
+| voicebox_model | Text | Yes | Model form field, for example `turbo`. |
 | transcript_text | Text | Yes | Returned or edited transcript. |
 | language | Text | No | Detected or user-selected language. |
 | status | Text | Yes | `machine`, `reviewed`, `edited`, `rejected`. |

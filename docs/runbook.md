@@ -16,7 +16,7 @@ Before import or batch processing:
 4. Confirm Voicebox availability with `GET http://127.0.0.1:17493/profiles`
    when transcription or generation is requested.
 5. Confirm selected transcription model is configured, for example
-   `whisper-turbo`.
+   `turbo`.
 6. Confirm generated-audio requests have a profile id from `GET /profiles`.
 
 Manual Voicebox checks:
@@ -26,7 +26,7 @@ curl http://127.0.0.1:17493/profiles
 
 curl -X POST http://127.0.0.1:17493/transcribe \
   -F "audio=@recording.wav" \
-  -F "model=whisper-turbo"
+  -F "model=turbo"
 
 curl -X POST http://127.0.0.1:17493/generate \
   -H "Content-Type: application/json" \

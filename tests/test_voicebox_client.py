@@ -39,7 +39,7 @@ def test_transcribe_audio_posts_multipart_audio_and_model(tmp_path):
 
     client = VoiceboxClient(base_url="http://127.0.0.1:17493", opener=opener)
 
-    result = client.transcribe_audio(audio_file, model="whisper-turbo")
+    result = client.transcribe_audio(audio_file, model="turbo")
 
     assert result.text == "hello from voicebox"
     assert result.language == "en"
@@ -47,7 +47,7 @@ def test_transcribe_audio_posts_multipart_audio_and_model(tmp_path):
     assert captured["timeout"] == 120
     assert "multipart/form-data" in captured["headers"]["Content-type"]
     assert b'name="model"' in captured["body"]
-    assert b"whisper-turbo" in captured["body"]
+    assert b"turbo" in captured["body"]
     assert b'name="audio"; filename="clip.ogg"' in captured["body"]
     assert b"audio-bytes" in captured["body"]
 
@@ -131,7 +131,7 @@ def test_generate_speech_polls_and_exports_audio_to_output_path(tmp_path):
                 },
             )
         if request.full_url.endswith("/generate/gen-123/status"):
-            return FakeResponse(200, {"status": "completed"})
+            return FakeResponse(200, b'data: {"id":"gen-123","status":"completed"}\n\n')
         if request.full_url.endswith("/history/gen-123/export-audio"):
             return FakeResponse(200, b"wav-bytes", {"Content-Type": "audio/wav"})
         raise AssertionError(request.full_url)

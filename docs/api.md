@@ -87,14 +87,14 @@ Fields:
 | Field | Type | Required | Description |
 |---|---|---:|---|
 | audio | File | Yes | Audio file, staged from project workspace. |
-| model | Text | Yes | Voicebox model name, for example `whisper-turbo`. |
+| model | Text | Yes | Voicebox model name, for example `turbo`. |
 
 Example:
 
 ```bash
 curl -X POST http://127.0.0.1:17493/transcribe \
   -F "audio=@recording.wav" \
-  -F "model=whisper-turbo"
+  -F "model=turbo"
 ```
 
 ChatParser response handling:
@@ -203,7 +203,7 @@ Request:
 ```json
 {
   "attachment_ids": ["uuid"],
-  "model": "whisper-turbo",
+  "model": "turbo",
   "fail_fast": false
 }
 ```

@@ -4,8 +4,28 @@ final class ChatParserRunner {
     private let rootURL: URL
     private var process: Process?
 
-    init(rootURL: URL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)) {
+    init(rootURL: URL = ChatParserRunner.resolveRepositoryRoot()) {
         self.rootURL = rootURL
+    }
+
+    private static func resolveRepositoryRoot() -> URL {
+        let fileManager = FileManager.default
+        let current = URL(fileURLWithPath: fileManager.currentDirectoryPath)
+        if fileManager.fileExists(atPath: current.appendingPathComponent("chatparser.py").path) {
+            return current
+        }
+
+        var candidate = Bundle.main.bundleURL
+        for _ in 0..<8 {
+            if fileManager.fileExists(atPath: candidate.appendingPathComponent("chatparser.py").path) {
+                return candidate
+            }
+            let parent = candidate.deletingLastPathComponent()
+            if parent.path == candidate.path { break }
+            candidate = parent
+        }
+
+        return current
     }
 
     func run(

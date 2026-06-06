@@ -47,11 +47,16 @@ def test_transcribe_audio_line_appends_voicebox_transcript(tmp_path, monkeypatch
         7,
     )
 
-    assert fake_client.transcribed == [(str(audio), "whisper-turbo")]
+    assert fake_client.transcribed == [(str(audio), "turbo")]
     assert transcription == file_out[0]
     assert "[01/01/2024, 12:00:00] Alice: [Transcribed]: voicebox transcript" in transcription
     assert "(en)" in transcription
     assert f"[File: {audio.name}]" in transcription
+
+
+def test_normalize_voicebox_transcription_model_accepts_legacy_whisper_prefix():
+    assert chatparser.normalize_voicebox_transcription_model("whisper-turbo") == "turbo"
+    assert chatparser.normalize_voicebox_transcription_model("small") == "small"
 
 
 def test_line_to_audio_generates_speech_through_voicebox(tmp_path, monkeypatch):

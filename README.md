@@ -175,7 +175,7 @@ To convert audio attachments to text:
 python chatparser.py \
   --to-type text \
   --input-directory /path/to/export-or-parent \
-  --model whisper-turbo
+  --model turbo
 ```
 
 Make sure that your shell has read and write access to the given directory.

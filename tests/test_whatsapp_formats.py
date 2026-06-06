@@ -89,5 +89,5 @@ def test_process_android_export_transcribes_audio_attachment(tmp_path, monkeypat
         to_type="text",
     )
 
-    assert fake_client.transcribed == [(str(export_dir / "AUD-20241231-WA0001.opus"), "whisper-turbo")]
+    assert fake_client.transcribed == [(str(export_dir / "AUD-20241231-WA0001.opus"), "turbo")]
     assert "[31/12/2024, 23:05:00] Alice: [Transcribed]: voicebox transcript" in file_out[0]

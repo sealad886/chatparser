@@ -69,6 +69,8 @@ timings_measurement = None
 def_sample_rate = None
 cps = None
 __VOICEBOX_CLIENT = None
+
+VOICEBOX_TRANSCRIPTION_MODELS = {"base", "small", "medium", "large", "turbo"}
 __VOICEBOX_URL = None
 __VOICEBOX_MODEL = None
 __VOICEBOX_PROFILE = None
@@ -105,7 +107,7 @@ def set_globals():
         pass
     os.makedirs(".locks/", exist_ok=True)
     os.environ["TMPDIR"] = os.path.abspath(".locks")
-    __MODEL_NAME = "whisper-turbo"
+    __MODEL_NAME = "turbo"
     __VERBOSE = False
     __PROGRESS_BAR = False
     __FORCE_REDO = False
@@ -126,11 +128,20 @@ def set_globals():
     def_sample_rate = 24000  # don't change this as this is what vocoder is set to, no way to change it currently -- voices get real fast / slow when bitrate changes without resampling, which is what would need to happen 
     cps = 15
     __VOICEBOX_URL = "http://127.0.0.1:17493"
-    __VOICEBOX_MODEL = "whisper-turbo"
+    __VOICEBOX_MODEL = "turbo"
     __VOICEBOX_PROFILE = None
     __VOICEBOX_PROFILE_MAP = {}
     __VOICEBOX_LANGUAGE = "en"
     __VOICEBOX_CLIENT = VoiceboxClient(base_url=__VOICEBOX_URL)
+
+
+def normalize_voicebox_transcription_model(model: str | None) -> str:
+    value = (model or "turbo").strip()
+    if value.startswith("whisper-"):
+        value = value.removeprefix("whisper-")
+    if value not in VOICEBOX_TRANSCRIPTION_MODELS:
+        raise ValueError(f"Voicebox transcription model must be one of {sorted(VOICEBOX_TRANSCRIPTION_MODELS)}")
+    return value
 
 def remove_punctuation(input_str):
     # Create a translation table that maps each punctuation to None
@@ -533,7 +544,10 @@ def transcribe_audio_line(audio_folder, match, model_dir, model_prompt, date_tim
     if __VOICEBOX_CLIENT is None:
         __VOICEBOX_CLIENT = VoiceboxClient(base_url=__VOICEBOX_URL or "http://127.0.0.1:17493")
 
-    result = __VOICEBOX_CLIENT.transcribe_audio(audio_file, model=__VOICEBOX_MODEL or model_dir)
+    result = __VOICEBOX_CLIENT.transcribe_audio(
+        audio_file,
+        model=normalize_voicebox_transcription_model(__VOICEBOX_MODEL or model_dir),
+    )
     language = result.language or "unk"
 
     # build the transcription line now
@@ -613,8 +627,19 @@ if __name__ == "__main__":
         "-m",
         "--model",
         type=str, 
-        default="whisper-turbo",
-        choices=["whisper-base", "whisper-small", "whisper-medium", "whisper-large", "whisper-turbo"],
+        default="turbo",
+        choices=[
+            "base",
+            "small",
+            "medium",
+            "large",
+            "turbo",
+            "whisper-base",
+            "whisper-small",
+            "whisper-medium",
+            "whisper-large",
+            "whisper-turbo",
+        ],
         help="The Voicebox transcription model to request.")
     parser.add_argument(
         "--voicebox-url",

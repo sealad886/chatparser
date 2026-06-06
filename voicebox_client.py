@@ -77,7 +77,7 @@ class VoiceboxClient:
             raise VoiceboxError("Voicebox profile sample upload returned an unexpected response")
         return payload
 
-    def transcribe_audio(self, audio_path: str | Path, model: str = "whisper-turbo") -> TranscriptionResult:
+    def transcribe_audio(self, audio_path: str | Path, model: str = "turbo") -> TranscriptionResult:
         path = Path(audio_path)
         fields = {"model": model}
         files = {"audio": path}
@@ -127,7 +127,8 @@ class VoiceboxClient:
     def _wait_for_generation(self, generation_id: str, poll_interval: float, max_wait_seconds: int) -> None:
         deadline = time.monotonic() + max_wait_seconds
         while time.monotonic() < deadline:
-            status_payload = self._json_request("GET", f"/generate/{generation_id}/status")
+            response = self._request("GET", f"/generate/{generation_id}/status")
+            status_payload = self._decode_generation_status(response)
             status = str(status_payload.get("status", "")).lower()
             if status == "completed":
                 return
@@ -170,6 +171,39 @@ class VoiceboxClient:
         if not isinstance(decoded, (dict, list)):
             raise VoiceboxError("Voicebox returned an unexpected JSON shape")
         return decoded
+
+    def _decode_generation_status(self, response: Any) -> dict[str, Any]:
+        with response:
+            try:
+                body = response.read().decode("utf-8")
+            except UnicodeDecodeError as exc:
+                raise VoiceboxError("Voicebox returned a non-text generation status response") from exc
+        if not body:
+            return {}
+        try:
+            decoded = json.loads(body)
+            if isinstance(decoded, dict):
+                return decoded
+        except json.JSONDecodeError:
+            pass
+
+        latest: dict[str, Any] | None = None
+        for line in body.splitlines():
+            line = line.strip()
+            if not line.startswith("data:"):
+                continue
+            payload = line[5:].strip()
+            if not payload:
+                continue
+            try:
+                decoded = json.loads(payload)
+            except json.JSONDecodeError as exc:
+                raise VoiceboxError("Voicebox returned malformed generation status SSE") from exc
+            if isinstance(decoded, dict):
+                latest = decoded
+        if latest is None:
+            raise VoiceboxError("Voicebox returned an unexpected generation status response")
+        return latest
 
     def _multipart_body(self, fields: dict[str, str], files: dict[str, Path]) -> tuple[dict[str, str], bytes]:
         boundary = f"----chatparser-{uuid.uuid4().hex}"

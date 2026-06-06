@@ -4,7 +4,7 @@ struct RunConfiguration: Equatable {
     var inputDirectory: URL?
     var mode: TransformationMode = .transcribeToText
     var voiceboxURL: String = "http://127.0.0.1:17493"
-    var model: String = "whisper-turbo"
+    var model: String = "turbo"
     var profileID: String = ""
     var profileMap: String = ""
     var language: String = "en"
