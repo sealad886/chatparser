@@ -22,6 +22,19 @@ struct VoiceProfile: Codable, Identifiable, Equatable {
         case generationCount = "generation_count"
         case sampleCount = "sample_count"
     }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        description = try container.decodeIfPresent(String.self, forKey: .description)
+        language = try container.decode(String.self, forKey: .language)
+        voiceType = try container.decodeIfPresent(String.self, forKey: .voiceType) ?? "cloned"
+        defaultEngine = try container.decodeIfPresent(String.self, forKey: .defaultEngine)
+        personality = try container.decodeIfPresent(String.self, forKey: .personality)
+        generationCount = try container.decodeIfPresent(Int.self, forKey: .generationCount)
+        sampleCount = try container.decodeIfPresent(Int.self, forKey: .sampleCount)
+    }
 }
 
 struct ProfileSample: Codable, Identifiable, Equatable {

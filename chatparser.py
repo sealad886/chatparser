@@ -336,6 +336,7 @@ def process_chat_file_by_type(chat_file: str, audio_folder: str, model_prompt: s
         model_dir = __VOICEBOX_MODEL
 
         prev_datetime = None
+        prev_date_time_str = None
         prepend_text = None
         append_text = None
         prev_spkr = None
@@ -356,6 +357,14 @@ def process_chat_file_by_type(chat_file: str, audio_folder: str, model_prompt: s
             line = line.replace("\u200e","")
             parsed = parse_whatsapp_line(line)
             if parsed is None:
+                if to_type == "audio" and prev_spr_lines:
+                    prev_spr_lines.append(line.strip())
+                    if lastline and prev_date_time_str is not None:
+                        spkr_multi_lines = ". ".join(prev_spr_lines)
+                        if spkr_multi_lines:
+                            line_to_audio(spkr_multi_lines, prev_spkr or "", prev_date_time_str, audio_folder, chat_num, spkr_profiles)
+                        prev_spr_lines.clear()
+                    continue
                 if file_out:
                     file_out[-1] = file_out[-1].rstrip("\n") + f"\n{line}\n"
                 else:
@@ -423,6 +432,7 @@ def process_chat_file_by_type(chat_file: str, audio_folder: str, model_prompt: s
             else:
                 print(f"Don't know what to do with this line {i}")
             prev_datetime = cur_datetime
+            prev_date_time_str = date_time_str
             if __ENABLE_TIMINGS: tt([f'{i}_loop_end',now()])
             chat_num+=1
         if __ENABLE_TIMINGS: tt(['lines_loop_end',now()])
@@ -463,7 +473,7 @@ def move_audio_file(attachment, audio_folder, ctr) -> None:
 def line_to_audio(line, spkrname, date_time_str, audio_folder, ctr: str, spkr_profiles: dict = {}):
     day, mon, yr = date_time_str.split(",")[0].split("/")
     os.makedirs(os.path.join(audio_folder, "audio_out"), exist_ok=True)
-    audio_out_file = os.path.join(audio_folder, "audio_out", f"{str(ctr+1).zfill(8)}-AUDIO-{yr}-{mon}-{day}-auto-generated.mp3")
+    audio_out_file = os.path.join(audio_folder, "audio_out", f"{str(ctr+1).zfill(8)}-AUDIO-{yr}-{mon}-{day}-auto-generated.wav")
     if os.path.exists(audio_out_file) and os.path.isfile(audio_out_file):
         print(f"File exists: {audio_out_file}") if __VERBOSE else None
         return audio_out_file
