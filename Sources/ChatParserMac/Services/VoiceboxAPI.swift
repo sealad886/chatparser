@@ -33,7 +33,11 @@ final class VoiceboxAPI {
     private let encoder = JSONEncoder()
 
     init(baseURLString: String, session: URLSession = .shared) throws {
-        guard let url = URL(string: baseURLString.trimmingCharacters(in: .whitespacesAndNewlines)) else {
+        guard let url = URL(string: baseURLString.trimmingCharacters(in: .whitespacesAndNewlines)),
+              let scheme = url.scheme?.lowercased(),
+              ["http", "https"].contains(scheme),
+              url.host != nil
+        else {
             throw VoiceboxAPIError.invalidBaseURL(baseURLString)
         }
         self.baseURL = url

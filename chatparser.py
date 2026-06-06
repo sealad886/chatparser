@@ -517,7 +517,6 @@ def line_to_audio(line, spkrname, date_time_str, audio_folder, ctr: str, spkr_pr
         Path(audio_out_file),
         profile_id=profile_id,
         language=__VOICEBOX_LANGUAGE,
-        profile=spkrname,
     )
     sent_cnt += 1
     

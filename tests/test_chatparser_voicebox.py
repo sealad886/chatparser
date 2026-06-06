@@ -12,14 +12,13 @@ class FakeVoiceboxClient:
         self.transcribed.append((str(audio_path), model))
         return SimpleNamespace(text="voicebox transcript", language="en")
 
-    def generate_speech(self, text, output_path, profile_id=None, language="en", profile=None):
+    def generate_speech(self, text, output_path, profile_id=None, language="en"):
         self.generated.append(
             {
                 "text": text,
                 "output_path": str(output_path),
                 "profile_id": profile_id,
                 "language": language,
-                "profile": profile,
             }
         )
         output_path.write_bytes(b"generated audio")
@@ -84,7 +83,6 @@ def test_line_to_audio_generates_speech_through_voicebox(tmp_path, monkeypatch):
             "output_path": output_path,
             "profile_id": "voice-123",
             "language": "en",
-            "profile": "Alice",
         }
     ]
 
@@ -153,4 +151,3 @@ def test_audio_export_uses_first_speaker_profile_mapping(tmp_path, monkeypatch):
 
     assert fake_client.generated
     assert fake_client.generated[0]["profile_id"] == "alice-profile"
-    assert fake_client.generated[0]["profile"] == "Alice"

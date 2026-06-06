@@ -11,6 +11,21 @@ struct RunConfiguration: Equatable {
     var forceRedo: Bool = false
     var showProgress: Bool = true
 
+    var isVoiceboxURLValid: Bool {
+        Self.isValidVoiceboxURL(voiceboxURL)
+    }
+
+    static func isValidVoiceboxURL(_ value: String) -> Bool {
+        guard let url = URL(string: value.trimmingCharacters(in: .whitespacesAndNewlines)),
+              let scheme = url.scheme?.lowercased(),
+              ["http", "https"].contains(scheme),
+              url.host != nil
+        else {
+            return false
+        }
+        return true
+    }
+
     var commandArguments: [String] {
         guard let inputDirectory else { return [] }
         var args = [

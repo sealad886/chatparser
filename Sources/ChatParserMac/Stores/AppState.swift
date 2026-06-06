@@ -37,6 +37,7 @@ final class AppState: ObservableObject {
 
     var canRun: Bool {
         guard configuration.inputDirectory != nil, !isRunning else { return false }
+        guard configuration.isVoiceboxURLValid else { return false }
         if configuration.mode == .synthesizeToAudio {
             return !configuration.profileID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 || !configuration.profileMap.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty

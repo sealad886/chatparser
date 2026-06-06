@@ -94,7 +94,6 @@ class VoiceboxClient:
         output_path: str | Path,
         profile_id: str | None = None,
         language: str = "en",
-        profile: str | None = None,
         poll_interval: float = 1.0,
         max_wait_seconds: int = 600,
     ) -> Path:
