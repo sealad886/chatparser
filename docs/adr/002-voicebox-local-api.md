@@ -5,7 +5,7 @@ Status: Proposed
 
 ## Context
 
-Chatparser must transcribe WhatsApp audio/video attachments and generate speech
+ChatParser must transcribe WhatsApp audio/video attachments and generate speech
 from selected text. Voicebox already provides local speech-to-text and
 text-to-speech capabilities. The upstream README documents a REST API at
 `http://127.0.0.1:17493`, including `POST /transcribe`,
@@ -13,12 +13,12 @@ text-to-speech capabilities. The upstream README documents a REST API at
 and captures stay local, and identifies FastAPI and SQLite as backend storage
 technologies.
 
-Directly importing Whisper or Voicebox internals would couple Chatparser to
+Directly importing Whisper or Voicebox internals would couple ChatParser to
 Voicebox implementation details and model runtime dependencies.
 
 ## Decision
 
-Integrate Voicebox exclusively through its local REST API. Chatparser will:
+Integrate Voicebox exclusively through its local REST API. ChatParser will:
 
 - call `GET /profiles` for service availability and profile selection,
 - call `POST /transcribe` with multipart `audio` and `model` fields,
@@ -29,7 +29,7 @@ Integrate Voicebox exclusively through its local REST API. Chatparser will:
 
 ## Alternatives Considered
 
-- Direct Whisper imports in Chatparser - Rejected because it duplicates
+- Direct Whisper imports in ChatParser - Rejected because it duplicates
   Voicebox responsibility, adds model/runtime complexity, and violates the
   requested integration boundary.
 - Direct Voicebox Python module imports - Rejected because internal APIs may
@@ -37,11 +37,11 @@ Integrate Voicebox exclusively through its local REST API. Chatparser will:
 - Cloud transcription provider - Rejected because the product is local-first and
   WhatsApp exports are highly sensitive.
 - Voicebox SQLite integration - Rejected because Voicebox owns its storage and
-  Chatparser only needs profile ids, transcript results, and generated audio.
+  ChatParser only needs profile ids, transcript results, and generated audio.
 
 ## Consequences
 
-- Chatparser remains smaller and avoids bundling STT/TTS model runtimes.
+- ChatParser remains smaller and avoids bundling STT/TTS model runtimes.
 - Voicebox can evolve internally as long as the REST contract remains stable.
 - Users must run Voicebox locally before transcription or generation.
 - API drift must be caught with integration tests against the running local

@@ -2,7 +2,7 @@
 
 ## System Overview
 
-Chatparser processes sensitive WhatsApp conversations and media on a user's Mac.
+ChatParser processes sensitive WhatsApp conversations and media on a user's Mac.
 The app imports local exports, stages media into a project workspace, calls
 Voicebox over `http://127.0.0.1:17493`, stores transcripts and generated audio
 locally, and lets the user export selected results. The MVP has no cloud backend
@@ -10,7 +10,7 @@ and no multi-user server.
 
 Voicebox is treated as a separate local process. Upstream Voicebox README states
 that its models, voice data, and captures stay local, and that its backend is
-FastAPI with SQLite storage. Chatparser relies on the documented REST boundary,
+FastAPI with SQLite storage. ChatParser relies on the documented REST boundary,
 not internal Voicebox storage.
 
 ## Assets
@@ -30,7 +30,7 @@ not internal Voicebox storage.
 | Boundary | Risk | Control |
 |---|---|---|
 | User-selected source folder to project workspace | Accidental destructive writes | Source paths opened read-only; derived artifacts written only under project root. |
-| Chatparser to Voicebox localhost API | Untrusted local service or stale API shape | Loopback-only URL, short timeouts, response validation, explicit service status. |
+| ChatParser to Voicebox localhost API | Untrusted local service or stale API shape | Loopback-only URL, short timeouts, response validation, explicit service status. |
 | Project workspace to export bundle | Oversharing sensitive content | Export preview, manifest, and explicit destination selection. |
 | UI to local helper process | Local cross-process request spoofing | Bind to loopback, random session token, no broad CORS. |
 | Logs to support bundle | Sensitive text leakage | Structured logs exclude message body and transcript text by default. |
@@ -50,6 +50,7 @@ not internal Voicebox storage.
 | Spoofing | Voicebox API | Another process could bind `127.0.0.1:17493` and imitate Voicebox. | Display service identity from `/profiles`/docs where possible, validate response shape, require user to start Voicebox intentionally. | Medium |
 | Spoofing | Local helper | Another local process could call helper endpoints. | Random per-session token, loopback bind, reject missing token, no wildcard CORS. | Low |
 | Tampering | Source export | Import code might alter or remove original files. | Open source read-only, write derived files only under project root, include source checksum manifest. | Low |
+| Tampering | Malicious ZIP import | A crafted archive could use absolute paths or `..` traversal to write outside the intended project root. | Normalize each entry path, reject absolute paths and parent-directory references after normalization, compute the final extraction target and require it to stay inside the project root, extract through a safe API or sandboxed temporary directory, whitelist expected file names and media extensions where feasible, log and surface rejected entries, and record checksums in the import manifest. | High |
 | Tampering | Project artifacts | User or malware could edit transcripts or generated audio outside app. | Store checksums, version edits, show modified artifact warnings. | Medium |
 | Repudiation | Review edits | User cannot tell machine transcript from human edit. | Append transcript versions, record edited_at, provenance, and job id. | Low |
 | Information Disclosure | Logs | Raw message text or transcripts could leak through logs. | Redact by default, log ids/counts/status only, explicit diagnostic export warning. | Low |

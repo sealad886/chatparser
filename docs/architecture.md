@@ -2,7 +2,7 @@
 
 ## Product Summary
 
-Chatparser will become a Mac-first local desktop app for transforming WhatsApp
+ChatParser will become a Mac-first local desktop app for transforming WhatsApp
 exports and attached multimedia into searchable, editable, and optionally
 voice-generated local artifacts. The app targets a single local user working on
 their own machine. It keeps WhatsApp source exports, derived transcripts, media
@@ -10,10 +10,10 @@ renders, summaries, and voice outputs on local storage unless the user manually
 exports them.
 
 Voicebox integration is through its local REST API at
-`http://127.0.0.1:17493`. Chatparser does not import Whisper, Voicebox Python
+`http://127.0.0.1:17493`. ChatParser does not import Whisper, Voicebox Python
 modules, or model runtimes directly. Voicebox owns speech-to-text, text-to-speech,
 model downloads, GPU runtime selection, voice profiles, and its SQLite-backed
-capture/profile storage. Chatparser owns WhatsApp parsing, job orchestration,
+capture/profile storage. ChatParser owns WhatsApp parsing, job orchestration,
 local artifact metadata, user review state, and export packaging.
 
 Evidence from the upstream Voicebox README:
@@ -45,7 +45,7 @@ Source: <https://github.com/jamiepine/voicebox/blob/main/README.md>
 ## Non-Goals
 
 - No cloud transcription or speech generation.
-- No direct Whisper imports in Chatparser.
+- No direct Whisper imports in ChatParser.
 - No mutation of original WhatsApp exports.
 - No multi-user server or remote collaboration in the MVP.
 - No automated upload to WhatsApp, iCloud, Google Drive, or social platforms.
@@ -55,7 +55,7 @@ Source: <https://github.com/jamiepine/voicebox/blob/main/README.md>
 
 ```mermaid
 flowchart LR
-    User["Mac user"] --> App["Chatparser macOS app"]
+    User["Mac user"] --> App["ChatParser macOS app"]
     App --> Source["WhatsApp export folder"]
     App --> Store["Local project workspace"]
     App --> Voicebox["Voicebox REST API\n127.0.0.1:17493"]

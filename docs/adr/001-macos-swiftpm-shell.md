@@ -5,7 +5,7 @@ Status: Proposed
 
 ## Context
 
-Chatparser needs a Mac-first local app for importing WhatsApp exports, reviewing
+ChatParser needs a Mac-first local app for importing WhatsApp exports, reviewing
 messages and multimedia, running long local jobs, and coordinating a local
 Voicebox service. The app should feel native on macOS, use user-selected file
 access, and avoid a hosted backend for the MVP.

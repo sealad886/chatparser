@@ -31,6 +31,12 @@ install and configure environments and what to install will be forthcoming in fu
 
 ### Dependencies
 
+- macOS 14 or newer for the SwiftUI front end.
+- Swift Package Manager through Xcode Command Line Tools or Xcode.
+- Python 3.12 in a project-local `.venv`.
+- Voicebox running locally, normally at `http://127.0.0.1:17493`.
+- Python packages from `requirements.txt` for the transformer and test suite.
+
 ### Phone Compatibility
 ChatParser supports WhatsApp exports from iPhone and Android.
 

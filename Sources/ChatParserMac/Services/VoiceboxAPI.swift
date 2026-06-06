@@ -147,7 +147,11 @@ final class VoiceboxAPI {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         }
         let data = try await perform(request)
-        if Response.self == EmptyResponse.self, data.isEmpty || String(decoding: data, as: UTF8.self).hasPrefix("{") {
+        if Response.self == EmptyResponse.self {
+            let text = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard data.isEmpty || text.isEmpty || text == "{}" || text == "null" else {
+                throw VoiceboxAPIError.invalidResponse
+            }
             return EmptyResponse() as! Response
         }
         return try decoder.decode(Response.self, from: data)

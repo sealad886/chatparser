@@ -2,15 +2,15 @@
 
 ## Scope
 
-This document defines Chatparser's internal service boundaries and the external
-Voicebox REST dependency. The MVP is a local desktop app, so Chatparser does not
+This document defines ChatParser's internal service boundaries and the external
+Voicebox REST dependency. The MVP is a local desktop app, so ChatParser does not
 expose a public network API. If the macOS shell and processing core communicate
 over a local helper process, the helper must bind to loopback only and use a
 random per-session token.
 
 ## External Dependency: Voicebox REST
 
-Chatparser integrates Voicebox through HTTP on loopback:
+ChatParser integrates Voicebox through HTTP on loopback:
 
 ```text
 Base URL: http://127.0.0.1:17493
@@ -30,13 +30,13 @@ Source: <https://github.com/jamiepine/voicebox/blob/main/README.md>
 
 ### Health Check
 
-Voicebox README does not document a dedicated health endpoint. Chatparser should
+Voicebox README does not document a dedicated health endpoint. ChatParser should
 test availability with a short-timeout `GET /profiles` call because profile
 listing is documented and side-effect free.
 
 Expected handling:
 
-| Outcome | Chatparser Behavior |
+| Outcome | ChatParser Behavior |
 |---|---|
 | 200 response | Mark Voicebox available and cache profile list briefly. |
 | Connection refused | Show "Voicebox is not running" and keep job queued. |
@@ -54,7 +54,7 @@ GET /profiles HTTP/1.1
 Host: 127.0.0.1:17493
 ```
 
-Response contract used by Chatparser:
+Response contract used by ChatParser:
 
 ```json
 [
@@ -66,7 +66,7 @@ Response contract used by Chatparser:
 ]
 ```
 
-Chatparser must tolerate additional fields and missing optional labels. The
+ChatParser must tolerate additional fields and missing optional labels. The
 stable value persisted in `generated_audio.voicebox_profile_id` is the profile
 id sent to `POST /generate`.
 
@@ -97,7 +97,7 @@ curl -X POST http://127.0.0.1:17493/transcribe \
   -F "model=whisper-turbo"
 ```
 
-Chatparser response handling:
+ChatParser response handling:
 
 - Accept JSON or text response shapes by using a typed adapter with schema
   guards.
@@ -130,14 +130,14 @@ Body:
 }
 ```
 
-Chatparser request constraints:
+ChatParser request constraints:
 
 - `text` comes from a selected message, transcript, or local text derivation.
 - `profile_id` must be selected from a recent `GET /profiles` result or entered
   manually by an advanced user.
 - `language` defaults from project settings and can be overridden per request.
 
-Chatparser response handling:
+ChatParser response handling:
 
 - Persist returned audio to `generated-audio/`.
 - Record profile id, language, endpoint, request hash, output hash, and duration
@@ -147,7 +147,7 @@ Chatparser response handling:
 
 ## Internal App Service API
 
-If Chatparser splits the UI from a local processing helper, these endpoints are
+If ChatParser splits the UI from a local processing helper, these endpoints are
 the local-only contract. They are not internet-facing.
 
 ### `POST /projects`
@@ -159,7 +159,7 @@ Request:
 ```json
 {
   "name": "Family WhatsApp Export",
-  "artifact_root": "/Users/example/ChatparserArtifacts"
+  "artifact_root": "/Users/example/ChatParserArtifacts"
 }
 ```
 
@@ -168,7 +168,7 @@ Response:
 ```json
 {
   "project_id": "uuid",
-  "workspace_path": "/Users/example/ChatparserArtifacts/projects/uuid"
+  "workspace_path": "/Users/example/ChatParserArtifacts/projects/uuid"
 }
 ```
 

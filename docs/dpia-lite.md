@@ -2,7 +2,7 @@
 
 ## Processing Summary
 
-Chatparser lets a Mac user import WhatsApp exports, parse messages and
+ChatParser lets a Mac user import WhatsApp exports, parse messages and
 attachments, transcribe audio/video attachments through local Voicebox REST, and
 generate local audio from selected text. Processing occurs on the user's Mac.
 The default Voicebox endpoint is `http://127.0.0.1:17493`.
@@ -27,7 +27,7 @@ The default Voicebox endpoint is `http://127.0.0.1:17493`.
 
 ## Lawful Basis Considerations
 
-Chatparser is local software. The user is responsible for having a valid basis
+ChatParser is local software. The user is responsible for having a valid basis
 to process WhatsApp exports and media. Product UX should make clear that
 conversation participants may have privacy rights and that generated audio
 should not be presented as original media.
@@ -55,12 +55,12 @@ should not be presented as original media.
 
 ## Retention
 
-- Source WhatsApp exports remain outside Chatparser control.
+- Source WhatsApp exports remain outside ChatParser control.
 - Project-local staged media, transcripts, generated audio, database, and logs
   remain until the user deletes a project or specific artifacts.
 - Export bundles remain wherever the user saves them.
 - Voicebox retains its own captures/profiles/models according to Voicebox
-  settings; Chatparser does not manage Voicebox SQLite retention.
+  settings; ChatParser does not manage Voicebox SQLite retention.
 
 ## International Transfers
 

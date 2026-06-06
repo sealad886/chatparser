@@ -2,7 +2,7 @@
 
 ## Operating Model
 
-Chatparser runs as a local macOS app. Voicebox runs as a separate local app or
+ChatParser runs as a local macOS app. Voicebox runs as a separate local app or
 backend service and must be reachable at `http://127.0.0.1:17493` for
 transcription and generation. No cloud service is required for the MVP.
 

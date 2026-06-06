@@ -10,7 +10,7 @@ discipline for data handling.
 
 ## GDPR Mapping
 
-| Principle | Chatparser Control |
+| Principle | ChatParser Control |
 |---|---|
 | Lawfulness, fairness, transparency | User imports their own WhatsApp export and sees local processing boundaries before transcription/generation. |
 | Purpose limitation | Project is scoped to parsing, transforming, transcribing, generating, reviewing, and exporting selected chat artifacts. |
@@ -26,7 +26,7 @@ discipline for data handling.
 |---|---|
 | Access | User can view messages, media metadata, transcripts, generated audio, and export manifests locally. |
 | Rectification | User can edit transcript versions and participant aliases. |
-| Erasure | User can delete project-local artifacts and exports; original WhatsApp source remains outside Chatparser control. |
+| Erasure | User can delete project-local artifacts and exports; original WhatsApp source remains outside ChatParser control. |
 | Portability | JSON, CSV, HTML, Markdown, and media bundle exports are planned local output formats. |
 | Restriction | User can pause or cancel jobs and exclude attachments from processing. |
 
@@ -59,7 +59,7 @@ discipline for data handling.
 
 Voicebox README states that models, voice data, and captures never leave the
 machine, and documents a local REST API, FastAPI backend, and SQLite database.
-Chatparser must not broaden that privacy posture by forwarding media to remote
+ChatParser must not broaden that privacy posture by forwarding media to remote
 URLs without explicit user action. Any future remote Voicebox host support is a
 material privacy change and requires updated security, DPIA, runbook, and user
 consent UI.

@@ -2,9 +2,9 @@
 
 ## Storage Boundary
 
-Chatparser stores its own project metadata and derived artifacts in a local
+ChatParser stores its own project metadata and derived artifacts in a local
 workspace. Voicebox stores its own models, voice profiles, captures, and SQLite
-data. Chatparser references Voicebox profile identifiers and endpoint metadata,
+data. ChatParser references Voicebox profile identifiers and endpoint metadata,
 but it does not read or write Voicebox SQLite directly.
 
 Recommended project layout:
@@ -217,7 +217,7 @@ erDiagram
 
 ## Retention Semantics
 
-- Source files are read-only and never deleted by Chatparser.
+- Source files are read-only and never deleted by ChatParser.
 - Project-local artifacts can be deleted by project cleanup.
 - Transcript and generated audio versions are append-only until user deletes a
   version or whole project.

@@ -130,6 +130,11 @@ private struct ConversationView: View {
                             .controlSize(.small)
                         Text(state.conversationProgress)
                             .foregroundStyle(.secondary)
+                        Button {
+                            state.cancelConversationGeneration()
+                        } label: {
+                            Label("Cancel", systemImage: "stop.fill")
+                        }
                     }
                     Button {
                         state.generateSelectedChatMessageAudio()

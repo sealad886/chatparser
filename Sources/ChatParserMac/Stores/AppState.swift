@@ -24,7 +24,7 @@ final class AppState: ObservableObject {
     @Published var chatMessages: [ChatMessage] = []
     @Published var chatParticipants: [String] = []
     @Published var meParticipant = ""
-    @Published var selectedChatMessageID: UUID?
+    @Published var selectedChatMessageID: String?
     @Published var participantProfileIDs: [String: String] = [:]
     @Published var chatMessage = ""
     @Published var isConversationGenerating = false
@@ -33,6 +33,7 @@ final class AppState: ObservableObject {
     private let runner = ChatParserRunner()
     private let parser = WhatsAppExportParser()
     private let defaultGeneratedAudioName = "voicebox-selection.wav"
+    private var conversationTask: Task<Void, Never>?
 
     var canRun: Bool {
         guard configuration.inputDirectory != nil, !isRunning else { return false }
@@ -121,6 +122,7 @@ final class AppState: ObservableObject {
     }
 
     func generateConversationAudio() {
+        cancelConversationGeneration(updateMessage: false)
         let playable = chatMessages.filter { message in
             guard let speaker = message.speaker else { return false }
             return !(participantProfileIDs[speaker] ?? "").isEmpty && !message.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -140,10 +142,11 @@ final class AppState: ObservableObject {
 
         isConversationGenerating = true
         conversationProgress = "0 / \(playable.count)"
-        Task {
+        conversationTask = Task {
             do {
                 let api = try VoiceboxAPI(baseURLString: self.configuration.voiceboxURL)
                 for (index, message) in playable.enumerated() {
+                    try Task.checkCancellation()
                     guard let speaker = message.speaker, let profileID = self.participantProfileIDs[speaker] else { continue }
                     let safeSpeaker = speaker.replacingOccurrences(of: "[^A-Za-z0-9_-]+", with: "-", options: .regularExpression)
                     let filename = "\(String(format: "%05d", index + 1))-\(safeSpeaker).wav"
@@ -155,20 +158,47 @@ final class AppState: ObservableObject {
                         destination: destination
                     )
                     await MainActor.run {
+                        guard !Task.isCancelled else { return }
                         self.conversationProgress = "\(index + 1) / \(playable.count)"
                     }
                 }
+                try Task.checkCancellation()
                 await MainActor.run {
                     self.chatMessage = "Generated \(playable.count) audio clips"
                     self.isConversationGenerating = false
+                    self.conversationProgress = ""
+                    self.conversationTask = nil
                     NSWorkspace.shared.open(outputFolder)
+                }
+            } catch is CancellationError {
+                await MainActor.run {
+                    self.chatMessage = "Conversation generation cancelled."
+                    self.isConversationGenerating = false
+                    self.conversationProgress = ""
+                    self.conversationTask = nil
                 }
             } catch {
                 await MainActor.run {
                     self.chatMessage = error.localizedDescription
                     self.isConversationGenerating = false
+                    self.conversationProgress = ""
+                    self.conversationTask = nil
                 }
             }
+        }
+    }
+
+    func cancelConversationGeneration() {
+        cancelConversationGeneration(updateMessage: true)
+    }
+
+    private func cancelConversationGeneration(updateMessage: Bool) {
+        conversationTask?.cancel()
+        conversationTask = nil
+        isConversationGenerating = false
+        conversationProgress = ""
+        if updateMessage {
+            chatMessage = "Conversation generation cancellation requested."
         }
     }
 
