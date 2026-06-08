@@ -5,6 +5,8 @@ enum VoiceboxAPIError: LocalizedError {
     case invalidResponse
     case http(Int, String)
     case missingGenerationID
+    case generationFailed(String)
+    case generationTimedOut
 
     var errorDescription: String? {
         switch self {
@@ -16,6 +18,10 @@ enum VoiceboxAPIError: LocalizedError {
             "Voicebox HTTP \(status): \(body)"
         case .missingGenerationID:
             "Voicebox did not return a generation id."
+        case .generationFailed(let detail):
+            "Voicebox generation failed: \(detail)"
+        case .generationTimedOut:
+            "Voicebox generation timed out."
         }
     }
 }
@@ -80,15 +86,29 @@ final class VoiceboxAPI {
         let _: EmptyResponse = try await jsonRequest("DELETE", path: "/profiles/samples/\(sampleID)")
     }
 
-    func generateSpeech(profileID: String, text: String, language: String, destination: URL) async throws -> URL {
+    func generateSpeech(
+        profileID: String,
+        text: String,
+        language: String,
+        destination: URL,
+        onGenerationID: ((String) async -> Void)? = nil
+    ) async throws -> URL {
         let response: GenerationResponse = try await jsonRequest(
             "POST",
             path: "/generate",
             jsonBody: ["profile_id": profileID, "text": text, "language": language]
         )
+        await onGenerationID?(response.id)
+        if (response.status ?? "").lowercased() != "completed" {
+            try await waitForGeneration(response.id)
+        }
         let audio = try await rawRequest("GET", path: "/audio/\(response.id)")
         try audio.write(to: destination, options: .atomic)
         return destination
+    }
+
+    func cancelGeneration(_ generationID: String) async throws {
+        let _: EmptyResponse = try await jsonRequest("POST", path: "/generate/\(generationID)/cancel")
     }
 
     private func profilePayload(name: String, description: String?, language: String, personality: String?) -> [String: String?] {
@@ -101,8 +121,48 @@ final class VoiceboxAPI {
         ]
     }
 
+    private func waitForGeneration(_ generationID: String) async throws {
+        let status = try await generationStatus(generationID)
+        switch status.status.lowercased() {
+        case "completed":
+            return
+        case "failed", "cancelled", "canceled", "error", "not_found":
+            throw VoiceboxAPIError.generationFailed(status.error ?? status.status)
+        default:
+            throw VoiceboxAPIError.generationTimedOut
+        }
+    }
+
+    private func generationStatus(_ generationID: String) async throws -> GenerationStatus {
+        var request = URLRequest(url: endpointURL(path: "/generate/\(generationID)/status"))
+        request.httpMethod = "GET"
+        request.timeoutInterval = 600
+        let (bytes, response) = try await session.bytes(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw VoiceboxAPIError.invalidResponse
+        }
+        guard 200..<300 ~= http.statusCode else {
+            throw VoiceboxAPIError.http(http.statusCode, "")
+        }
+
+        for try await line in bytes.lines {
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard trimmed.hasPrefix("data:") else { continue }
+            let payload = String(trimmed.dropFirst(5)).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let data = payload.data(using: .utf8),
+                  let status = try? decoder.decode(GenerationStatus.self, from: data)
+            else {
+                throw VoiceboxAPIError.invalidResponse
+            }
+            if ["completed", "failed", "cancelled", "canceled", "error", "not_found"].contains(status.status.lowercased()) {
+                return status
+            }
+        }
+        throw VoiceboxAPIError.invalidResponse
+    }
+
     private func jsonRequest<Response: Decodable, Body: Encodable>(_ method: String, path: String, jsonBody: Body? = Optional<Data>.none) async throws -> Response {
-        var request = URLRequest(url: baseURL.appendingPathComponent(path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))))
+        var request = URLRequest(url: endpointURL(path: path))
         request.httpMethod = method
         if let jsonBody {
             request.httpBody = try encoder.encode(jsonBody)
@@ -120,7 +180,7 @@ final class VoiceboxAPI {
     }
 
     private func multipartRequest<Response: Decodable>(_ method: String, path: String, multipart: MultipartBody) async throws -> Response {
-        var request = URLRequest(url: baseURL.appendingPathComponent(path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))))
+        var request = URLRequest(url: endpointURL(path: path))
         request.httpMethod = method
         request.httpBody = multipart.data
         request.setValue("multipart/form-data; boundary=\(multipart.boundary)", forHTTPHeaderField: "Content-Type")
@@ -129,9 +189,13 @@ final class VoiceboxAPI {
     }
 
     private func rawRequest(_ method: String, path: String) async throws -> Data {
-        var request = URLRequest(url: baseURL.appendingPathComponent(path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))))
+        var request = URLRequest(url: endpointURL(path: path))
         request.httpMethod = method
         return try await perform(request)
+    }
+
+    private func endpointURL(path: String) -> URL {
+        baseURL.appendingPathComponent(path.trimmingCharacters(in: CharacterSet(charactersIn: "/")))
     }
 
     private func perform(_ request: URLRequest) async throws -> Data {

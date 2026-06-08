@@ -19,19 +19,11 @@ struct ChatAttachment: Identifiable, Equatable {
 }
 
 struct ChatMessage: Identifiable, Equatable {
+    let id: String
     let timestamp: Date
     let speaker: String?
     let text: String
     let attachment: ChatAttachment?
-
-    var id: String {
-        [
-            timestamp.ISO8601Format(),
-            speaker ?? "System",
-            text,
-            attachment?.id ?? ""
-        ].joined(separator: "|")
-    }
 
     var participant: String {
         speaker ?? "System"

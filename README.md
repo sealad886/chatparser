@@ -78,9 +78,11 @@ curl http://127.0.0.1:17493/profiles
 ```
 
 Text transcription uses Voicebox `POST /transcribe`. Voice cloning/generation
-uses Voicebox `POST /generate` and fetches generated audio from
-`/audio/{generation_id}`. A Voicebox profile id is required for text-to-audio
-generation.
+uses Voicebox `POST /generate`. If generation completes immediately
+(`status: "completed"`), ChatParser fetches audio directly from
+`/audio/{generation_id}`. If generation is queued or in progress, ChatParser
+waits on `/generate/{generation_id}/status` until completion, then fetches
+the audio. A Voicebox profile id is required for text-to-audio generation.
 
 To create a cloned Voicebox profile from local audio files:
 
@@ -185,7 +187,8 @@ Make sure that your shell has read and write access to the given directory.
 Any advise for common problems or issues.
 * Do not install or symlink `whisper` for ChatParser. Voicebox owns ASR.
 * If transcription fails immediately, confirm Voicebox is running and reachable
-  at `VOICEBOX_BASE_URL` or the `--voicebox-url` value.
+  at `VOICEBOX_BASE_URL`, the macOS app Voicebox URL setting, or the
+  `--voicebox-url` value.
 * If generated audio fails, confirm `--voicebox-profile` or each
   `--voicebox-profile-map` value is a real profile id from `GET /profiles`.
 * If NLTK data is missing, ChatParser skips spell-correction and sends the raw

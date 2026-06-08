@@ -33,7 +33,9 @@ final class AppState: ObservableObject {
     private let runner = ChatParserRunner()
     private let parser = WhatsAppExportParser()
     private let defaultGeneratedAudioName = "voicebox-selection.wav"
+    private var chatLoadTask: Task<Void, Never>?
     private var conversationTask: Task<Void, Never>?
+    private var activeConversationGenerationIDs = Set<String>()
 
     var canRun: Bool {
         guard configuration.inputDirectory != nil, !isRunning else { return false }
@@ -73,13 +75,17 @@ final class AppState: ObservableObject {
 
     func loadChatExport() {
         guard let inputDirectory = configuration.inputDirectory else { return }
+        chatLoadTask?.cancel()
         chatMessage = "Loading chat export..."
         let parser = self.parser
-        Task {
+        chatLoadTask = Task {
             do {
                 let messages = try await Task.detached(priority: .userInitiated) {
-                    try parser.parseExport(at: inputDirectory)
+                    try Task.checkCancellation()
+                    return try parser.parseExport(at: inputDirectory)
                 }.value
+                try Task.checkCancellation()
+                guard self.configuration.inputDirectory == inputDirectory else { return }
                 self.chatMessages = messages
                 self.chatParticipants = Array(Set(messages.compactMap(\.speaker))).sorted()
                 if self.meParticipant.isEmpty || !self.chatParticipants.contains(self.meParticipant) {
@@ -87,11 +93,19 @@ final class AppState: ObservableObject {
                 }
                 self.selectedChatMessageID = messages.first?.id
                 self.chatMessage = "Loaded \(messages.count) messages"
+                self.chatLoadTask = nil
+            } catch is CancellationError {
+                if self.configuration.inputDirectory == inputDirectory {
+                    self.chatMessage = "Chat export load cancelled."
+                }
+                self.chatLoadTask = nil
             } catch {
+                guard self.configuration.inputDirectory == inputDirectory else { return }
                 self.chatMessages = []
                 self.chatParticipants = []
                 self.selectedChatMessageID = nil
                 self.chatMessage = error.localizedDescription
+                self.chatLoadTask = nil
             }
         }
     }
@@ -149,6 +163,7 @@ final class AppState: ObservableObject {
 
         isConversationGenerating = true
         conversationProgress = "0 / \(playable.count)"
+        activeConversationGenerationIDs = []
         conversationTask = Task {
             do {
                 let api = try VoiceboxAPI(baseURLString: self.configuration.voiceboxURL)
@@ -162,10 +177,16 @@ final class AppState: ObservableObject {
                         profileID: profileID,
                         text: message.text,
                         language: self.configuration.language,
-                        destination: destination
+                        destination: destination,
+                        onGenerationID: { generationID in
+                            await MainActor.run {
+                                _ = self.activeConversationGenerationIDs.insert(generationID)
+                            }
+                        }
                     )
                     await MainActor.run {
                         guard !Task.isCancelled else { return }
+                        self.activeConversationGenerationIDs.removeAll()
                         self.conversationProgress = "\(index + 1) / \(playable.count)"
                     }
                 }
@@ -175,9 +196,16 @@ final class AppState: ObservableObject {
                     self.isConversationGenerating = false
                     self.conversationProgress = ""
                     self.conversationTask = nil
+                    self.activeConversationGenerationIDs = []
                     NSWorkspace.shared.open(outputFolder)
                 }
             } catch is CancellationError {
+                let ids = await MainActor.run { () -> [String] in
+                    let ids = Array(self.activeConversationGenerationIDs)
+                    self.activeConversationGenerationIDs = []
+                    return ids
+                }
+                await self.cancelVoiceboxGenerations(ids)
                 await MainActor.run {
                     self.chatMessage = "Conversation generation cancelled."
                     self.isConversationGenerating = false
@@ -190,6 +218,7 @@ final class AppState: ObservableObject {
                     self.isConversationGenerating = false
                     self.conversationProgress = ""
                     self.conversationTask = nil
+                    self.activeConversationGenerationIDs = []
                 }
             }
         }
@@ -200,12 +229,24 @@ final class AppState: ObservableObject {
     }
 
     private func cancelConversationGeneration(updateMessage: Bool) {
+        let generationIDs = Array(activeConversationGenerationIDs)
+        activeConversationGenerationIDs = []
         conversationTask?.cancel()
         conversationTask = nil
         isConversationGenerating = false
         conversationProgress = ""
+        Task { await cancelVoiceboxGenerations(generationIDs) }
         if updateMessage {
             chatMessage = "Conversation generation cancellation requested."
+        }
+    }
+
+    private func cancelVoiceboxGenerations(_ generationIDs: [String]) async {
+        guard !generationIDs.isEmpty,
+              let api = try? VoiceboxAPI(baseURLString: await MainActor.run(body: { self.configuration.voiceboxURL }))
+        else { return }
+        for generationID in generationIDs {
+            try? await api.cancelGeneration(generationID)
         }
     }
 

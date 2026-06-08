@@ -160,3 +160,13 @@ text, or full source path by default.
 - Log scan confirms no raw message body or transcript text.
 - Export manifest includes checksums and provenance.
 - Folder/file loops show progress and ETA.
+
+Run the Voicebox integration checks from a prepared local Mac with Voicebox
+already running:
+
+```bash
+VOICEBOX_BASE_URL=http://127.0.0.1:17493 \
+VOICEBOX_PROFILE_ID=<profile-id-from-profiles> \
+VOICEBOX_SAMPLE_AUDIO=/path/to/local/sample.wav \
+python -m pytest -m voicebox_integration
+```

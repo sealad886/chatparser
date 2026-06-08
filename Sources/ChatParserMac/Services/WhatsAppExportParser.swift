@@ -20,13 +20,6 @@ struct WhatsAppExportParser: Sendable {
         "MM/dd/yy, HH:mm"
     ]
 
-    private static let formatters: [DateFormatter] = timestampFormats.map { format in
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = format
-        return formatter
-    }
-
     func parseExport(at folder: URL) throws -> [ChatMessage] {
         let chatFile = try findChatFile(in: folder)
         let raw = try String(contentsOf: chatFile, encoding: .utf8)
@@ -36,16 +29,20 @@ struct WhatsAppExportParser: Sendable {
     func parse(_ raw: String, mediaRoot: URL) -> [ChatMessage] {
         var messages: [ChatMessage] = []
         var current: ChatMessage?
+        var sequence = 0
+        let formatters = Self.makeTimestampFormatters()
 
         for line in raw.components(separatedBy: .newlines) {
             guard !line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
-            if let parsed = parseHeader(line, mediaRoot: mediaRoot) {
+            if let parsed = parseHeader(line, mediaRoot: mediaRoot, sequence: sequence, formatters: formatters) {
                 if let current {
                     messages.append(current)
                 }
                 current = parsed
+                sequence += 1
             } else if let existing = current {
                 current = ChatMessage(
+                    id: existing.id,
                     timestamp: existing.timestamp,
                     speaker: existing.speaker,
                     text: existing.text + "\n" + line,
@@ -78,27 +75,37 @@ struct WhatsAppExportParser: Sendable {
         throw CocoaError(.fileNoSuchFile)
     }
 
-    private func parseHeader(_ line: String, mediaRoot: URL) -> ChatMessage? {
+    private static func makeTimestampFormatters() -> [DateFormatter] {
+        timestampFormats.map { format in
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.dateFormat = format
+            return formatter
+        }
+    }
+
+    private func parseHeader(_ line: String, mediaRoot: URL, sequence: Int, formatters: [DateFormatter]) -> ChatMessage? {
         let cleaned = line.trimmingCharacters(in: .whitespacesAndNewlines)
             .replacingOccurrences(of: "\u{200e}", with: "")
 
         if let match = match(cleaned, pattern: #"^\[(.+?)\]\s*(.*)$"#),
-           let timestamp = parseTimestamp(match[1]) {
+           let timestamp = parseTimestamp(match[1], formatters: formatters) {
             let split = splitSpeaker(match[2])
-            return makeMessage(timestamp: timestamp, speaker: split.speaker, text: split.text, mediaRoot: mediaRoot)
+            return makeMessage(sequence: sequence, timestamp: timestamp, speaker: split.speaker, text: split.text, mediaRoot: mediaRoot)
         }
 
         if let match = match(cleaned, pattern: #"^(.+?)\s+-\s+(.*)$"#),
-           let timestamp = parseTimestamp(match[1]) {
+           let timestamp = parseTimestamp(match[1], formatters: formatters) {
             let split = splitSpeaker(match[2])
-            return makeMessage(timestamp: timestamp, speaker: split.speaker, text: split.text, mediaRoot: mediaRoot)
+            return makeMessage(sequence: sequence, timestamp: timestamp, speaker: split.speaker, text: split.text, mediaRoot: mediaRoot)
         }
 
         return nil
     }
 
-    private func makeMessage(timestamp: Date, speaker: String?, text: String, mediaRoot: URL) -> ChatMessage {
+    private func makeMessage(sequence: Int, timestamp: Date, speaker: String?, text: String, mediaRoot: URL) -> ChatMessage {
         ChatMessage(
+            id: "\(mediaRoot.standardizedFileURL.path)#\(sequence)",
             timestamp: timestamp,
             speaker: speaker,
             text: text,
@@ -134,10 +141,10 @@ struct WhatsAppExportParser: Sendable {
         return ChatAttachment(filename: trimmed, url: url, isAudio: isAudio)
     }
 
-    private func parseTimestamp(_ value: String) -> Date? {
+    private func parseTimestamp(_ value: String, formatters: [DateFormatter]) -> Date? {
         let normalized = value.replacingOccurrences(of: "\u{202f}", with: " ")
             .replacingOccurrences(of: "\u{00a0}", with: " ")
-        for formatter in Self.formatters {
+        for formatter in formatters {
             if let date = formatter.date(from: normalized) {
                 return date
             }

@@ -34,13 +34,15 @@ final class ChatParserRunner {
         onTermination: @escaping @Sendable (Int32) -> Void
     ) {
         let python = rootURL.appendingPathComponent(".venv/bin/python")
-        let executable = FileManager.default.isExecutableFile(atPath: python.path)
-            ? python.path
-            : "/usr/bin/python3"
+        guard FileManager.default.isExecutableFile(atPath: python.path) else {
+            onOutput("Missing repo virtual environment: \(python.path)\nRun: python3 -m venv .venv && . .venv/bin/activate && python -m pip install -r requirements.txt\n")
+            onTermination(127)
+            return
+        }
 
         let process = Process()
         process.currentDirectoryURL = rootURL
-        process.executableURL = URL(fileURLWithPath: executable)
+        process.executableURL = python
         process.arguments = configuration.commandArguments
 
         let outputPipe = Pipe()

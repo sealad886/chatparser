@@ -2,6 +2,9 @@
 testpaths = ["tests"]
 pythonpath = ["."]
 addopts = "-q"
+markers = [
+    "voicebox_integration: requires a running local Voicebox service and local sample/profile env vars",
+]
 
 [tool.ruff]
 line-length = 120

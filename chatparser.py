@@ -644,7 +644,7 @@ if __name__ == "__main__":
         "-m",
         "--model",
         type=str, 
-        default="turbo",
+        default=os.environ.get("VOICEBOX_TRANSCRIPTION_MODEL", "turbo"),
         choices=[
             "base",
             "small",
@@ -661,12 +661,12 @@ if __name__ == "__main__":
     parser.add_argument(
         "--voicebox-url",
         type=str,
-        default="http://127.0.0.1:17493",
+        default=os.environ.get("VOICEBOX_BASE_URL", "http://127.0.0.1:17493"),
         help="Local Voicebox REST API base URL.")
     parser.add_argument(
         "--voicebox-profile",
         type=str,
-        default=None,
+        default=os.environ.get("VOICEBOX_PROFILE_ID"),
         help="Fallback Voicebox voice profile id for generated speech.")
     parser.add_argument(
         "--voicebox-profile-map",
@@ -681,7 +681,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--voicebox-language",
         type=str,
-        default="en",
+        default=os.environ.get("VOICEBOX_LANGUAGE", "en"),
         help="Language code to send to Voicebox for generated speech.")
     parser.add_argument(
         "-i", 

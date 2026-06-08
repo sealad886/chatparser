@@ -70,3 +70,17 @@ struct GenerationResponse: Codable, Equatable {
         case error
     }
 }
+
+struct GenerationStatus: Codable, Equatable {
+    let id: String?
+    let status: String
+    let audioPath: String?
+    let error: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case status
+        case audioPath = "audio_path"
+        case error
+    }
+}

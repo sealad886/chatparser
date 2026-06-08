@@ -132,6 +132,10 @@ class VoiceboxClient:
         if not generation_id:
             raise VoiceboxError("Voicebox /generate response did not include an id")
 
+        status = str(generation.get("status") or "").lower()
+        if status != "completed":
+            self._wait_for_generation(str(generation_id), poll_interval, max_wait_seconds)
+
         audio_response = self._request("GET", f"/audio/{generation_id}")
         with audio_response:
             body = audio_response.read()
@@ -139,6 +143,20 @@ class VoiceboxClient:
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_bytes(body)
         return destination
+
+    def _wait_for_generation(self, generation_id: str, poll_interval: float, max_wait_seconds: int) -> None:
+        deadline = time.monotonic() + max_wait_seconds
+        while time.monotonic() < deadline:
+            response = self._request("GET", f"/generate/{generation_id}/status")
+            status_payload = self._decode_generation_status(response)
+            status = str(status_payload.get("status", "")).lower()
+            if status == "completed":
+                return
+            if status in {"failed", "cancelled", "canceled", "error", "not_found"}:
+                detail = status_payload.get("error") or status_payload
+                raise VoiceboxError(f"Voicebox generation {generation_id} failed: {detail}")
+            time.sleep(poll_interval)
+        raise VoiceboxError(f"Voicebox generation {generation_id} timed out after {max_wait_seconds}s")
 
     def _json_request(self, method: str, endpoint: str, payload: dict[str, Any] | None = None) -> Any:
         data = json.dumps(payload).encode("utf-8") if payload is not None else None
@@ -183,6 +201,68 @@ class VoiceboxClient:
             code = getcode()
             return int(code) if code is not None else None
         return None
+
+    def _decode_generation_status(self, response: Any) -> dict[str, Any]:
+        if "text/event-stream" in self._content_type(response):
+            return self._decode_generation_status_event(response)
+
+        with response:
+            try:
+                body = response.read().decode("utf-8")
+            except UnicodeDecodeError as exc:
+                raise VoiceboxError("Voicebox returned a non-text generation status response") from exc
+        if not body:
+            return {}
+        try:
+            decoded = json.loads(body)
+            if isinstance(decoded, dict):
+                return decoded
+        except json.JSONDecodeError:
+            pass
+
+        latest: dict[str, Any] | None = None
+        for line in body.splitlines():
+            line = line.strip()
+            if not line.startswith("data:"):
+                continue
+            payload = line[5:].strip()
+            if not payload:
+                continue
+            try:
+                decoded = json.loads(payload)
+            except json.JSONDecodeError as exc:
+                raise VoiceboxError("Voicebox returned malformed generation status SSE") from exc
+            if isinstance(decoded, dict):
+                latest = decoded
+        if latest is None:
+            raise VoiceboxError("Voicebox returned an unexpected generation status response")
+        return latest
+
+    def _decode_generation_status_event(self, response: Any) -> dict[str, Any]:
+        with response:
+            while True:
+                line = response.readline()
+                if not line:
+                    break
+                text = line.decode("utf-8").strip()
+                if not text.startswith("data:"):
+                    continue
+                payload = text[5:].strip()
+                if not payload:
+                    continue
+                try:
+                    decoded = json.loads(payload)
+                except json.JSONDecodeError as exc:
+                    raise VoiceboxError("Voicebox returned malformed generation status SSE") from exc
+                if isinstance(decoded, dict):
+                    return decoded
+        raise VoiceboxError("Voicebox returned an empty generation status SSE")
+
+    def _content_type(self, response: Any) -> str:
+        headers = getattr(response, "headers", {}) or {}
+        if hasattr(headers, "get"):
+            return str(headers.get("Content-Type") or headers.get("content-type") or "").lower()
+        return ""
 
     def _multipart_body(self, fields: dict[str, str], files: dict[str, Path]) -> tuple[dict[str, str], bytes]:
         boundary = f"----chatparser-{uuid.uuid4().hex}"
