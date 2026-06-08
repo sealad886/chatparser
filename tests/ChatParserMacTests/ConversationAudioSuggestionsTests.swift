@@ -75,6 +75,14 @@ struct ConversationAudioSuggestionsTests {
         #expect(suggestions.isEmpty)
     }
 
+    @Test func attachmentPlaybackClassifiesAudioAndVideoAsPlayableMedia() {
+        let folder = FileManager.default.temporaryDirectory
+
+        #expect(audio("voice.opus", folder.appendingPathComponent("voice.opus")).isPlayableMedia)
+        #expect(ChatAttachment(filename: "clip.mp4", url: folder.appendingPathComponent("clip.mp4"), isAudio: false).isPlayableMedia)
+        #expect(!image("photo.jpg", folder.appendingPathComponent("photo.jpg")).isPlayableMedia)
+    }
+
     private func message(_ id: String, speaker: String?, text: String, attachment: ChatAttachment?) -> ChatMessage {
         ChatMessage(id: id, timestamp: Date(timeIntervalSince1970: Double(id) ?? 0), speaker: speaker, text: text, attachment: attachment)
     }

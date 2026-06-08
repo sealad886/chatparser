@@ -140,6 +140,7 @@ flowchart TB
 | Dependency | Required For | Failure Mode |
 |---|---|---|
 | Voicebox app/backend running on `127.0.0.1:17493` | Transcription, generation, profile list | UI shows service unavailable and offers retry. |
+| Apple AVKit/AVFoundation system frameworks | Inline audio/video playback in the macOS chat view | Unsupported codecs remain openable through the system Open action. |
 | Local disk workspace | Project database and media artifacts | Import/export blocked until valid writable path selected. |
 | macOS file permissions | Access to user-selected export folders | File picker scoped access requested again. |
 | Optional ffmpeg or AVFoundation helpers | Video audio extraction if Voicebox requires audio-only input | Job records unsupported media transform error. |

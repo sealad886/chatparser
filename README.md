@@ -37,6 +37,8 @@ install and configure environments and what to install will be forthcoming in fu
 - Voicebox checked out as the `external/voicebox` git submodule and prepared
   with `./script/setup_voicebox.sh`.
 - Python packages from `requirements.txt` for the transformer and test suite.
+- Embedded multimedia playback uses Apple's AVKit/AVFoundation system
+  frameworks. No third-party media player source is bundled.
 
 ### Phone Compatibility
 ChatParser supports WhatsApp exports from iPhone and Android.
@@ -277,5 +279,5 @@ GitHub: [github.com/sealad886]
 - [ ] Option to download all weights/models at once
 - [ ] Multi-thread / Multiprocessing / Pool support
 - [ ] Handle situation where Location is not the first message in a series of messages.
-- [ ] Update all the LICENSE info to ensure GNU 3.0 license is compatible
+- [x] Use a multimedia player with direct-inclusion-friendly licensing.
 - [x] Update this so that it does not rely on the ml-explore/mlx-examples version of Whisper.

@@ -215,29 +215,37 @@ private struct AttachmentView: View {
     let attachment: ChatAttachment
 
     var body: some View {
-        HStack(spacing: 8) {
-            if attachment.isImage {
-                AttachmentThumbnail(url: attachment.url)
-            } else {
-                Image(systemName: iconName)
-                    .frame(width: 28)
+        VStack(alignment: .leading, spacing: 8) {
+            if attachment.isPlayableMedia {
+                AttachmentMediaPlayer(url: attachment.url, isVideo: attachment.isVideo)
+                    .frame(height: attachment.isVideo ? 220 : 56)
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
             }
-            VStack(alignment: .leading, spacing: 2) {
-                Text(attachment.filename)
-                    .font(.callout)
-                    .lineLimit(1)
-                Text(attachment.url.path)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+
+            HStack(spacing: 8) {
+                if attachment.isImage {
+                    AttachmentThumbnail(url: attachment.url)
+                } else {
+                    Image(systemName: iconName)
+                        .frame(width: 28)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(attachment.filename)
+                        .font(.callout)
+                        .lineLimit(1)
+                    Text(attachment.url.path)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                Spacer()
+                Button {
+                    state.openAttachment(attachment)
+                } label: {
+                    Label("Open", systemImage: "arrow.up.right.square")
+                }
+                .labelStyle(.iconOnly)
             }
-            Spacer()
-            Button {
-                state.openAttachment(attachment)
-            } label: {
-                Label("Open", systemImage: "arrow.up.right.square")
-            }
-            .labelStyle(.iconOnly)
         }
         .padding(8)
         .background(.quaternary.opacity(0.35))

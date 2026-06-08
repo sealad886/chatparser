@@ -16,6 +16,10 @@ struct ChatAttachment: Identifiable, Equatable {
     var isVideo: Bool {
         ["mp4", "mov", "m4v", "3gp", "webm"].contains(url.pathExtension.lowercased())
     }
+
+    var isPlayableMedia: Bool {
+        isAudio || isVideo
+    }
 }
 
 struct ChatMessage: Identifiable, Equatable {
