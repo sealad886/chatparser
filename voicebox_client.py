@@ -200,6 +200,9 @@ class VoiceboxClient:
         return None
 
     def _decode_generation_status(self, response: Any) -> dict[str, Any]:
+        if "text/event-stream" in self._content_type(response):
+            return self._decode_generation_status_event(response)
+
         with response:
             try:
                 body = response.read().decode("utf-8")
@@ -231,6 +234,32 @@ class VoiceboxClient:
         if latest is None:
             raise VoiceboxError("Voicebox returned an unexpected generation status response")
         return latest
+
+    def _decode_generation_status_event(self, response: Any) -> dict[str, Any]:
+        with response:
+            while True:
+                line = response.readline()
+                if not line:
+                    break
+                text = line.decode("utf-8").strip()
+                if not text.startswith("data:"):
+                    continue
+                payload = text[5:].strip()
+                if not payload:
+                    continue
+                try:
+                    decoded = json.loads(payload)
+                except json.JSONDecodeError as exc:
+                    raise VoiceboxError("Voicebox returned malformed generation status SSE") from exc
+                if isinstance(decoded, dict):
+                    return decoded
+        raise VoiceboxError("Voicebox returned an empty generation status SSE")
+
+    def _content_type(self, response: Any) -> str:
+        headers = getattr(response, "headers", {}) or {}
+        if hasattr(headers, "get"):
+            return str(headers.get("Content-Type") or headers.get("content-type") or "").lower()
+        return ""
 
     def _multipart_body(self, fields: dict[str, str], files: dict[str, Path]) -> tuple[dict[str, str], bytes]:
         boundary = f"----chatparser-{uuid.uuid4().hex}"
