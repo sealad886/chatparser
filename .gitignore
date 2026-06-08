@@ -2,6 +2,7 @@
 whisper
 .DS_Store
 .build/
+.codex/
 .locks/
 .venv/
 dist/
