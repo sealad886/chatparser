@@ -78,9 +78,9 @@ curl http://127.0.0.1:17493/profiles
 ```
 
 Text transcription uses Voicebox `POST /transcribe`. Voice cloning/generation
-uses Voicebox `POST /generate`, polls `/generate/{id}/status`, and exports audio
-from `/history/{id}/export-audio`. A Voicebox profile id is required for
-text-to-audio generation.
+uses Voicebox `POST /generate` and fetches generated audio from
+`/audio/{generation_id}`. A Voicebox profile id is required for text-to-audio
+generation.
 
 To create a cloned Voicebox profile from local audio files:
 

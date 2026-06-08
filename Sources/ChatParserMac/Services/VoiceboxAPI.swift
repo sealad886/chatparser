@@ -5,8 +5,6 @@ enum VoiceboxAPIError: LocalizedError {
     case invalidResponse
     case http(Int, String)
     case missingGenerationID
-    case generationFailed(String)
-    case generationTimedOut
 
     var errorDescription: String? {
         switch self {
@@ -18,10 +16,6 @@ enum VoiceboxAPIError: LocalizedError {
             "Voicebox HTTP \(status): \(body)"
         case .missingGenerationID:
             "Voicebox did not return a generation id."
-        case .generationFailed(let detail):
-            "Voicebox generation failed: \(detail)"
-        case .generationTimedOut:
-            "Voicebox generation timed out."
         }
     }
 }
@@ -92,8 +86,7 @@ final class VoiceboxAPI {
             path: "/generate",
             jsonBody: ["profile_id": profileID, "text": text, "language": language]
         )
-        try await waitForGeneration(response.id)
-        let audio = try await rawRequest("GET", path: "/history/\(response.id)/export-audio")
+        let audio = try await rawRequest("GET", path: "/audio/\(response.id)")
         try audio.write(to: destination, options: .atomic)
         return destination
     }
@@ -106,41 +99,6 @@ final class VoiceboxAPI {
             "voice_type": "cloned",
             "personality": personality
         ]
-    }
-
-    private func waitForGeneration(_ generationID: String) async throws {
-        let deadline = Date().addingTimeInterval(600)
-        while Date() < deadline {
-            let status = try await generationStatus(generationID)
-            switch status.status.lowercased() {
-            case "completed":
-                return
-            case "failed", "cancelled", "canceled", "error":
-                throw VoiceboxAPIError.generationFailed(status.error ?? status.status)
-            default:
-                try await Task.sleep(nanoseconds: 1_000_000_000)
-            }
-        }
-        throw VoiceboxAPIError.generationTimedOut
-    }
-
-    private func generationStatus(_ generationID: String) async throws -> GenerationStatus {
-        let data = try await rawRequest("GET", path: "/generate/\(generationID)/status")
-        if let decoded = try? decoder.decode(GenerationStatus.self, from: data) {
-            return decoded
-        }
-        let text = String(decoding: data, as: UTF8.self)
-        let eventPayloads = text
-            .split(separator: "\n")
-            .compactMap { line -> Data? in
-                let trimmed = line.trimmingCharacters(in: .whitespaces)
-                guard trimmed.hasPrefix("data:") else { return nil }
-                return String(trimmed.dropFirst(5)).trimmingCharacters(in: .whitespaces).data(using: .utf8)
-            }
-        if let last = eventPayloads.last, let decoded = try? decoder.decode(GenerationStatus.self, from: last) {
-            return decoded
-        }
-        throw VoiceboxAPIError.invalidResponse
     }
 
     private func jsonRequest<Response: Decodable, Body: Encodable>(_ method: String, path: String, jsonBody: Body? = Optional<Data>.none) async throws -> Response {

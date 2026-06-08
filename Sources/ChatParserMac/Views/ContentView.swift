@@ -211,12 +211,8 @@ private struct AttachmentView: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            if attachment.isImage, let image = NSImage(contentsOf: attachment.url) {
-                Image(nsImage: image)
-                    .resizable()
-                    .scaledToFill()
-                    .frame(width: 72, height: 72)
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
+            if attachment.isImage {
+                AttachmentThumbnail(url: attachment.url)
             } else {
                 Image(systemName: iconName)
                     .frame(width: 28)
@@ -249,6 +245,48 @@ private struct AttachmentView: View {
         if attachment.isImage { return "photo" }
         return "paperclip"
     }
+}
+
+private struct AttachmentThumbnail: View {
+    let url: URL
+    @State private var image: NSImage?
+
+    var body: some View {
+        Group {
+            if let image {
+                Image(nsImage: image)
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                Image(systemName: "photo")
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .frame(width: 72, height: 72)
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .task(id: url) {
+            await loadImage()
+        }
+    }
+
+    private func loadImage() async {
+        let cache = AttachmentImageCache.shared
+        let key = url as NSURL
+        if let cached = cache.object(forKey: key) {
+            image = cached
+            return
+        }
+        let data = await Task.detached(priority: .utility) {
+            try? Data(contentsOf: url)
+        }.value
+        guard !Task.isCancelled, let data, let loaded = NSImage(data: data) else { return }
+        cache.setObject(loaded, forKey: key)
+        image = loaded
+    }
+}
+
+private enum AttachmentImageCache {
+    static let shared = NSCache<NSURL, NSImage>()
 }
 
 private struct SpeakerProfilePanel: View {
