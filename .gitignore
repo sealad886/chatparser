@@ -5,6 +5,7 @@ whisper
 .locks/
 .venv/
 dist/
+logs/
 .vscode/launch.json
 voice-requirements.txt
 single_transcribe.py

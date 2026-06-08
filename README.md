@@ -140,6 +140,10 @@ On launch, the app checks the configured Voicebox URL. For loopback URLs such as
 reachable. If another Voicebox process is already running, ChatParser uses it but
 does not try to stop it.
 
+Managed Voicebox server stdout/stderr is appended to
+`logs/voicebox-server.log` so backend startup and generation errors can be
+inspected outside the GUI.
+
 The first tab is the conversation. It imports the WhatsApp export, renders the
 messages as chat bubbles, shows local attachments, lets you choose which
 participant is "me" so those bubbles align to the right, and lets you map each

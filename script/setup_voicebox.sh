@@ -33,6 +33,8 @@ PIP="$VENV_DIR/bin/pip"
 
 if [[ "$(uname -s)" == "Darwin" && "$(uname -m)" == "arm64" ]]; then
   "$PIP" install -r "$BACKEND_DIR/requirements-mlx.txt"
+  "$PIP" install --no-deps mlx-audio==0.4.1
+  "$PIP" install --no-deps mlx-lm==0.31.1
 fi
 
 "$PIP" install --no-deps chatterbox-tts

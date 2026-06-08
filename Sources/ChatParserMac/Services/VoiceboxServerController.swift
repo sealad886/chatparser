@@ -28,6 +28,7 @@ final class VoiceboxServerController {
     private let rootURL: URL
     private var process: Process?
     private var outputPipe: Pipe?
+    private var logFileHandle: FileHandle?
 
     init(rootURL: URL = VoiceboxServerController.resolveRepositoryRoot()) {
         self.rootURL = rootURL
@@ -59,19 +60,27 @@ final class VoiceboxServerController {
         ]
 
         let pipe = Pipe()
+        let logFile = try prepareLogFile()
         process.standardOutput = pipe
         process.standardError = pipe
         pipe.fileHandleForReading.readabilityHandler = { handle in
             let data = handle.availableData
             guard !data.isEmpty, let text = String(data: data, encoding: .utf8) else { return }
+            logFile.write(data)
             onOutput(text)
         }
         process.terminationHandler = { [weak self] process in
             pipe.fileHandleForReading.readabilityHandler = nil
+            let message = "Voicebox server exited with status \(process.terminationStatus)\n"
+            if let data = message.data(using: .utf8) {
+                logFile.write(data)
+            }
+            try? logFile.close()
             onOutput("Voicebox server exited with status \(process.terminationStatus)\n")
             Task { @MainActor in
                 self?.process = nil
                 self?.outputPipe = nil
+                self?.logFileHandle = nil
             }
         }
 
@@ -79,11 +88,14 @@ final class VoiceboxServerController {
             try process.run()
         } catch {
             pipe.fileHandleForReading.readabilityHandler = nil
+            try? logFile.close()
             throw VoiceboxServerError.startFailed(error.localizedDescription)
         }
 
         self.process = process
         self.outputPipe = pipe
+        self.logFileHandle = logFile
+        onOutput("Voicebox server log: \(logFileURL.path)\n")
         try await waitUntilReady(baseURLString: baseURLString)
     }
 
@@ -92,6 +104,12 @@ final class VoiceboxServerController {
         process = nil
         outputPipe?.fileHandleForReading.readabilityHandler = nil
         outputPipe = nil
+        try? logFileHandle?.close()
+        logFileHandle = nil
+    }
+
+    var logFileURL: URL {
+        rootURL.appendingPathComponent("logs/voicebox-server.log")
     }
 
     private func waitUntilReady(baseURLString: String) async throws {
@@ -115,6 +133,22 @@ final class VoiceboxServerController {
             throw VoiceboxServerError.nonLoopbackURL(value)
         }
         return (host == "localhost" ? "127.0.0.1" : host, url.port ?? 17493)
+    }
+
+    private func prepareLogFile() throws -> FileHandle {
+        let fileManager = FileManager.default
+        let logURL = logFileURL
+        try fileManager.createDirectory(at: logURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        if !fileManager.fileExists(atPath: logURL.path) {
+            fileManager.createFile(atPath: logURL.path, contents: nil)
+        }
+        let handle = try FileHandle(forWritingTo: logURL)
+        try handle.seekToEnd()
+        let marker = "\n--- Voicebox server start \(Date()) ---\n"
+        if let data = marker.data(using: .utf8) {
+            handle.write(data)
+        }
+        return handle
     }
 
     nonisolated private static func resolveRepositoryRoot() -> URL {

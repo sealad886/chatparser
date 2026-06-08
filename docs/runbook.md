@@ -38,6 +38,11 @@ curl -X POST http://127.0.0.1:17493/generate \
   -d '{"text": "Hello world", "profile_id": "abc123", "language": "en"}'
 ```
 
+For Voicebox instances launched by ChatParser, inspect
+`logs/voicebox-server.log` for the server process stdout/stderr. Generation
+records and their last error are also stored in
+`external/voicebox/data/voicebox.db`.
+
 ## Import Procedure
 
 1. Create or open project.
