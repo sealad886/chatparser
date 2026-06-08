@@ -2,9 +2,11 @@
 
 ## Operating Model
 
-ChatParser runs as a local macOS app. Voicebox runs as a separate local app or
-backend service and must be reachable at `http://127.0.0.1:17493` for
-transcription and generation. No cloud service is required for the MVP.
+ChatParser runs as a local macOS app. Voicebox is included as the
+`external/voicebox` git submodule and runs as a separate local backend service.
+For the default loopback URL, the macOS app starts the backend automatically
+from that submodule when no Voicebox server is already reachable. No cloud
+service is required for the MVP.
 
 ## Preflight
 
@@ -13,11 +15,14 @@ Before import or batch processing:
 1. Confirm project artifact root is writable.
 2. Estimate import size and free disk space.
 3. Confirm source path exists and is readable.
-4. Confirm Voicebox availability with `GET http://127.0.0.1:17493/profiles`
+4. Confirm the Voicebox submodule is initialized and prepared:
+   `git submodule update --init --recursive external/voicebox` and
+   `./script/setup_voicebox.sh`.
+5. Confirm Voicebox availability with `GET http://127.0.0.1:17493/profiles`
    when transcription or generation is requested.
-5. Confirm selected transcription model is configured, for example
+6. Confirm selected transcription model is configured, for example
    `turbo`.
-6. Confirm generated-audio requests have a profile id from `GET /profiles`.
+7. Confirm generated-audio requests have a profile id from `GET /profiles`.
 
 Manual Voicebox checks:
 

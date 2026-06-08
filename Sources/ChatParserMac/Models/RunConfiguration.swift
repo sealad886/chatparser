@@ -15,6 +15,13 @@ struct RunConfiguration: Equatable {
         Self.isValidVoiceboxURL(voiceboxURL)
     }
 
+    var isLoopbackVoiceboxURL: Bool {
+        guard let url = URL(string: voiceboxURL.trimmingCharacters(in: .whitespacesAndNewlines)),
+              let host = url.host
+        else { return false }
+        return ["127.0.0.1", "localhost", "::1"].contains(host)
+    }
+
     static func isValidVoiceboxURL(_ value: String) -> Bool {
         guard let url = URL(string: value.trimmingCharacters(in: .whitespacesAndNewlines)),
               let scheme = url.scheme?.lowercased(),

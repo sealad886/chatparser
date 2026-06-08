@@ -11,6 +11,9 @@ struct ContentView: View {
         } detail: {
             DetailView()
         }
+        .task {
+            await state.startVoiceboxServerIfNeeded()
+        }
     }
 }
 
@@ -387,6 +390,33 @@ private struct VoiceboxSettingsForm: View {
         Form {
             Section("Voicebox") {
                 TextField("URL", text: $state.configuration.voiceboxURL)
+                HStack {
+                    Button {
+                        state.startVoiceboxServer()
+                    } label: {
+                        Label("Start Server", systemImage: "power")
+                    }
+                    .disabled(state.isVoiceboxServerStarting || state.isVoiceboxServerRunning)
+
+                    Button {
+                        state.stopVoiceboxServer()
+                    } label: {
+                        Label("Stop Server", systemImage: "stop.fill")
+                    }
+                    .disabled(!state.isVoiceboxServerManaged && !state.isVoiceboxServerStarting)
+
+                    if state.isVoiceboxServerStarting {
+                        ProgressView()
+                            .controlSize(.small)
+                    }
+                }
+                Text(state.voiceboxServerMessage.isEmpty ? "Voicebox starts from external/voicebox when using the default local URL." : state.voiceboxServerMessage)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(nil)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 TextField("Transcription model", text: $state.configuration.model)
                 TextField("Fallback profile id", text: $state.configuration.profileID)
                 TextField("Language", text: $state.configuration.language)

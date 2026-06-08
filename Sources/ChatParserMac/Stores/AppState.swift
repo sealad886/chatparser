@@ -21,6 +21,10 @@ final class AppState: ObservableObject {
     @Published var generatedAudioURL: URL?
     @Published var voiceboxMessage = ""
     @Published var isVoiceboxBusy = false
+    @Published var isVoiceboxServerRunning = false
+    @Published var isVoiceboxServerStarting = false
+    @Published var isVoiceboxServerManaged = false
+    @Published var voiceboxServerMessage = ""
     @Published var chatMessages: [ChatMessage] = []
     @Published var chatParticipants: [String] = []
     @Published var meParticipant = ""
@@ -32,6 +36,7 @@ final class AppState: ObservableObject {
 
     private let runner = ChatParserRunner()
     private let parser = WhatsAppExportParser()
+    private let voiceboxServer = VoiceboxServerController()
     private let defaultGeneratedAudioName = "voicebox-selection.wav"
     private var chatLoadTask: Task<Void, Never>?
     private var conversationTask: Task<Void, Never>?
@@ -257,19 +262,22 @@ final class AppState: ObservableObject {
         isRunning = true
         append("Starting ChatParser with Voicebox at \(configuration.voiceboxURL)\n")
 
-        runner.run(
-            configuration: configuration,
-            onOutput: { [weak self] text in
-                Task { @MainActor in self?.append(text) }
-            },
-            onTermination: { [weak self] status in
-                Task { @MainActor in
-                    self?.isRunning = false
-                    self?.lastExitStatus = status
-                    self?.append("\nProcess exited with status \(status)\n")
+        Task {
+            await startVoiceboxServerIfNeeded()
+            runner.run(
+                configuration: configuration,
+                onOutput: { [weak self] text in
+                    Task { @MainActor in self?.append(text) }
+                },
+                onTermination: { [weak self] status in
+                    Task { @MainActor in
+                        self?.isRunning = false
+                        self?.lastExitStatus = status
+                        self?.append("\nProcess exited with status \(status)\n")
+                    }
                 }
-            }
-        )
+            )
+        }
     }
 
     func cancel() {
@@ -279,6 +287,78 @@ final class AppState: ObservableObject {
 
     private func append(_ text: String) {
         logText.append(text)
+    }
+
+    func startVoiceboxServer() {
+        Task {
+            await startVoiceboxServerIfNeeded(force: true)
+        }
+    }
+
+    func startVoiceboxServerIfNeeded(force: Bool = false) async {
+        if isVoiceboxServerStarting {
+            voiceboxServerMessage = "Waiting for Voicebox server..."
+            while isVoiceboxServerStarting {
+                try? await Task.sleep(nanoseconds: 100_000_000)
+            }
+            return
+        }
+        if !force, await isVoiceboxReachable() {
+            isVoiceboxServerRunning = true
+            isVoiceboxServerManaged = voiceboxServer.isRunning
+            voiceboxServerMessage = isVoiceboxServerManaged ? "Voicebox server is running." : "Voicebox is already running outside ChatParser."
+            return
+        }
+        guard configuration.isLoopbackVoiceboxURL else {
+            isVoiceboxServerRunning = false
+            isVoiceboxServerManaged = false
+            voiceboxServerMessage = "Auto-start is only available for localhost Voicebox URLs."
+            return
+        }
+
+        isVoiceboxServerStarting = true
+        voiceboxServerMessage = "Starting Voicebox server..."
+        do {
+            try await voiceboxServer.start(baseURLString: configuration.voiceboxURL) { [weak self] text in
+                Task { @MainActor in self?.appendVoiceboxServerOutput(text) }
+            }
+            isVoiceboxServerRunning = true
+            isVoiceboxServerManaged = true
+            voiceboxServerMessage = "Voicebox server is running."
+        } catch {
+            isVoiceboxServerRunning = false
+            isVoiceboxServerManaged = false
+            voiceboxServerMessage = error.localizedDescription
+        }
+        isVoiceboxServerStarting = false
+    }
+
+    func stopVoiceboxServer() {
+        guard isVoiceboxServerManaged else {
+            voiceboxServerMessage = "Voicebox was started outside ChatParser; stop it from that process."
+            return
+        }
+        voiceboxServer.stop()
+        isVoiceboxServerRunning = false
+        isVoiceboxServerManaged = false
+        voiceboxServerMessage = "Voicebox server stopped."
+    }
+
+    private func appendVoiceboxServerOutput(_ text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty {
+            voiceboxServerMessage = trimmed
+        }
+        logText.append(text)
+    }
+
+    private func isVoiceboxReachable() async -> Bool {
+        do {
+            try await VoiceboxAPI(baseURLString: configuration.voiceboxURL).health()
+            return true
+        } catch {
+            return false
+        }
     }
 
     func refreshVoicebox() {
@@ -508,6 +588,7 @@ final class AppState: ObservableObject {
             self.voiceboxMessage = ""
         }
         do {
+            await startVoiceboxServerIfNeeded()
             let api = try VoiceboxAPI(baseURLString: await MainActor.run { self.configuration.voiceboxURL })
             try await action(api)
             await MainActor.run { self.voiceboxMessage = successMessage }

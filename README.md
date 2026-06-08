@@ -34,7 +34,8 @@ install and configure environments and what to install will be forthcoming in fu
 - macOS 14 or newer for the SwiftUI front end.
 - Swift Package Manager through Xcode Command Line Tools or Xcode.
 - Python 3.12 in a project-local `.venv`.
-- Voicebox running locally, normally at `http://127.0.0.1:17493`.
+- Voicebox checked out as the `external/voicebox` git submodule and prepared
+  with `./script/setup_voicebox.sh`.
 - Python packages from `requirements.txt` for the transformer and test suite.
 
 ### Phone Compatibility
@@ -62,14 +63,37 @@ python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 ```
 
-Install and run Voicebox separately. ChatParser talks to Voicebox over its local
-REST API, normally `http://127.0.0.1:17493`.
+ChatParser talks to Voicebox over its local REST API, normally
+`http://127.0.0.1:17493`. The macOS app can start the bundled Voicebox submodule
+backend for loopback URLs.
 
 ### Installing
 
-1. Clone this repo `git clone https://github.com/sealad886/chatparser`
+1. Clone this repo with submodules:
+
+```bash
+git clone --recurse-submodules https://github.com/sealad886/chatparser
+```
+
+If you already cloned without submodules:
+
+```bash
+git submodule update --init --recursive external/voicebox
+```
+
 1. Create `.venv` and install dependencies as above.
-1. Install Voicebox from <https://github.com/jamiepine/voicebox> and start it.
+1. Prepare the local Voicebox backend environment:
+
+```bash
+./script/setup_voicebox.sh
+```
+
+This creates `external/voicebox/backend/venv` and installs Voicebox backend
+dependencies locally. It does not install Python packages globally.
+
+1. Start the macOS app. For the default loopback URL, ChatParser starts
+   Voicebox automatically from `external/voicebox`. You can also use the
+   Voicebox Start/Stop controls in the Transform settings or app Settings.
 1. Confirm Voicebox is reachable:
 
 ```bash
@@ -109,6 +133,12 @@ Build and launch the SwiftUI app:
 The Codex app Run action is wired to the same script. The app lets you choose a
 WhatsApp export folder, select transcribe or generate-audio mode, configure the
 Voicebox URL/model/profile/language, and watch the Python process log.
+
+On launch, the app checks the configured Voicebox URL. For loopback URLs such as
+`http://127.0.0.1:17493`, it starts `external/voicebox/backend` with
+`python -m backend.main --host 127.0.0.1 --port 17493` if no server is already
+reachable. If another Voicebox process is already running, ChatParser uses it but
+does not try to stop it.
 
 The first tab is the conversation. It imports the WhatsApp export, renders the
 messages as chat bubbles, shows local attachments, lets you choose which
