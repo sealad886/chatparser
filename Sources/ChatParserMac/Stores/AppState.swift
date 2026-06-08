@@ -64,6 +64,23 @@ final class AppState: ObservableObject {
         chatMessages.first { $0.id == selectedChatMessageID }
     }
 
+    var selectedProfileConversationClipSuggestions: [ConversationAudioClipSuggestion] {
+        guard let selectedProfileID else { return [] }
+        return ConversationAudioClipSuggestion.suggestions(
+            forProfileID: selectedProfileID,
+            messages: chatMessages,
+            participantProfileIDs: participantProfileIDs
+        )
+    }
+
+    var speakersAssignedToSelectedProfile: [String] {
+        guard let selectedProfileID else { return [] }
+        return participantProfileIDs.compactMap { participant, profileID in
+            profileID == selectedProfileID ? participant : nil
+        }
+        .sorted()
+    }
+
     func chooseInputDirectory() {
         let panel = NSOpenPanel()
         panel.allowsMultipleSelection = false
@@ -488,6 +505,40 @@ final class AppState: ObservableObject {
                         self.selectedSampleID = sample.id
                         self.sampleReferenceText = sample.referenceText
                     }
+                }
+            }
+        }
+    }
+
+    func useSuggestedClipText(_ suggestion: ConversationAudioClipSuggestion) {
+        sampleReferenceText = suggestion.referenceText
+    }
+
+    func openSuggestedClip(_ suggestion: ConversationAudioClipSuggestion) {
+        NSWorkspace.shared.open(suggestion.url)
+    }
+
+    func addSuggestedClip(_ suggestion: ConversationAudioClipSuggestion) {
+        guard let selectedProfileID else { return }
+        let referenceText = sampleReferenceText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? suggestion.referenceText
+            : sampleReferenceText
+        let trimmedReferenceText = referenceText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedReferenceText.isEmpty else {
+            voiceboxMessage = "Enter reference text before adding this suggested clip."
+            return
+        }
+        Task {
+            await performVoiceboxAction("Added suggested clip") { api in
+                _ = try await api.addSample(
+                    profileID: selectedProfileID,
+                    fileURL: suggestion.url,
+                    referenceText: trimmedReferenceText
+                )
+                let loaded = try await api.listSamples(profileID: selectedProfileID)
+                await MainActor.run {
+                    self.samples = loaded
+                    self.sampleReferenceText = ""
                 }
             }
         }

@@ -14,6 +14,11 @@ let package = Package(
         .executableTarget(
             name: "ChatParserMac",
             path: "Sources/ChatParserMac"
+        ),
+        .testTarget(
+            name: "ChatParserMacTests",
+            dependencies: ["ChatParserMac"],
+            path: "tests/ChatParserMacTests"
         )
     ]
 )

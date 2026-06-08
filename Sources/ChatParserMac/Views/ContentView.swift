@@ -660,7 +660,104 @@ private struct ProfileSamplesView: View {
                 }
                 .disabled(state.selectedSampleID == nil)
             }
+
+            SuggestedConversationClipsView()
         }
+    }
+}
+
+private struct SuggestedConversationClipsView: View {
+    @EnvironmentObject private var state: AppState
+
+    var body: some View {
+        let suggestions = state.selectedProfileConversationClipSuggestions
+        let assignedSpeakers = state.speakersAssignedToSelectedProfile
+        VStack(alignment: .leading, spacing: 8) {
+            Divider()
+            HStack {
+                Text("Suggested from Chat")
+                    .font(.headline)
+                Spacer()
+                Text("\(suggestions.count)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            if state.selectedProfileID == nil {
+                Text("Select a profile to see assigned speaker clips.")
+                    .foregroundStyle(.secondary)
+            } else if assignedSpeakers.isEmpty {
+                Text("Assign this profile to a chat speaker to see candidate audio clips.")
+                    .foregroundStyle(.secondary)
+            } else if suggestions.isEmpty {
+                Text("No audio attachments found for \(assignedSpeakers.joined(separator: ", ")).")
+                    .foregroundStyle(.secondary)
+            } else {
+                Text("Candidates from \(assignedSpeakers.joined(separator: ", ")). Add only clips that contain the speaker's voice.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 10) {
+                        ForEach(suggestions) { suggestion in
+                            SuggestedConversationClipRow(suggestion: suggestion)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .frame(minHeight: 120, maxHeight: 220)
+            }
+        }
+    }
+}
+
+private struct SuggestedConversationClipRow: View {
+    @EnvironmentObject private var state: AppState
+    let suggestion: ConversationAudioClipSuggestion
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Image(systemName: "waveform")
+                    .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(suggestion.filename)
+                        .lineLimit(1)
+                    Text("\(suggestion.speaker) · \(suggestion.timestamp.formatted(date: .abbreviated, time: .shortened))")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button {
+                    state.openSuggestedClip(suggestion)
+                } label: {
+                    Label("Open", systemImage: "play.circle")
+                }
+                Button {
+                    state.useSuggestedClipText(suggestion)
+                } label: {
+                    Label("Use Text", systemImage: "text.quote")
+                }
+                .disabled(suggestion.referenceText.isEmpty)
+                Button {
+                    state.addSuggestedClip(suggestion)
+                } label: {
+                    Label("Add", systemImage: "plus.circle")
+                }
+                .disabled(state.selectedProfileID == nil || state.isVoiceboxBusy)
+            }
+
+            Text(suggestion.referenceText.isEmpty ? "No transcript text detected. Enter reference text before adding." : suggestion.referenceText)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+                .textSelection(.enabled)
+            Text(suggestion.url.path)
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+                .lineLimit(1)
+                .textSelection(.enabled)
+        }
+        .padding(.vertical, 6)
     }
 }
 
