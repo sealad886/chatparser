@@ -7,6 +7,7 @@ struct ContentView: View {
     var body: some View {
         NavigationSplitView {
             SidebarView()
+                .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 300)
         } detail: {
             DetailView()
         }
@@ -84,7 +85,7 @@ private struct ConversationView: View {
     @EnvironmentObject private var state: AppState
 
     var body: some View {
-        HSplitView {
+        HStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
                     Text("Chat")
@@ -151,10 +152,11 @@ private struct ConversationView: View {
                 }
             }
             .padding()
-            .frame(minWidth: 560)
+            .frame(minWidth: 620, maxWidth: .infinity)
 
+            Divider()
             SpeakerProfilePanel()
-                .frame(minWidth: 320)
+                .frame(width: 340)
         }
     }
 }
@@ -450,7 +452,7 @@ private struct VoiceProfilesView: View {
     @EnvironmentObject private var state: AppState
 
     var body: some View {
-        HSplitView {
+        HStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
                     Text("Voice Profiles")
@@ -483,15 +485,16 @@ private struct VoiceProfilesView: View {
                 }
             }
             .padding()
-            .frame(minWidth: 290)
+            .frame(width: 320)
 
+            Divider()
             VStack(alignment: .leading, spacing: 12) {
                 ProfileEditorView()
                 Divider()
                 ProfileSamplesView()
             }
             .padding()
-            .frame(minWidth: 520)
+            .frame(minWidth: 560, maxWidth: .infinity)
         }
         .onAppear {
             if state.profiles.isEmpty {
