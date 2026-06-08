@@ -93,7 +93,7 @@ Example:
 
 ```bash
 curl -X POST http://127.0.0.1:17493/transcribe \
-  -F "audio=@recording.wav" \
+  -F "file=@recording.wav" \
   -F "model=turbo"
 ```
 

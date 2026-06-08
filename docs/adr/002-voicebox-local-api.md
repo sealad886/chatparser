@@ -21,7 +21,7 @@ Voicebox implementation details and model runtime dependencies.
 Integrate Voicebox exclusively through its local REST API. ChatParser will:
 
 - call `GET /profiles` for service availability and profile selection,
-- call `POST /transcribe` with multipart `audio` and `model` fields,
+- call `POST /transcribe` with multipart `file` and `model` fields,
 - call `POST /generate` with JSON `text`, `profile_id`, and `language`,
 - persist endpoint, model/profile/language, request provenance, and output
   checksums with each derived artifact,

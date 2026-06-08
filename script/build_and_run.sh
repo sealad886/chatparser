@@ -16,10 +16,14 @@ INFO_PLIST="$APP_CONTENTS/Info.plist"
 
 cd "$ROOT_DIR"
 
-pkill -x "$APP_NAME" >/dev/null 2>&1 || true
+pkill -f "$APP_BUNDLE" >/dev/null 2>&1 || true
 
 swift build
 BUILD_BINARY="$(swift build --show-bin-path)/$APP_NAME"
+if [[ ! -x "$BUILD_BINARY" ]]; then
+  echo "Expected Swift binary not found at $BUILD_BINARY - did the build produce a differently named artifact?" >&2
+  exit 1
+fi
 
 rm -rf "$APP_BUNDLE"
 mkdir -p "$APP_MACOS"

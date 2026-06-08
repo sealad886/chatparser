@@ -25,7 +25,7 @@ class FakeResponse:
         return False
 
 
-def test_transcribe_audio_posts_multipart_audio_and_model(tmp_path):
+def test_transcribe_audio_posts_multipart_file_and_model(tmp_path):
     audio_file = tmp_path / "clip.ogg"
     audio_file.write_bytes(b"audio-bytes")
     captured = {}
@@ -48,8 +48,29 @@ def test_transcribe_audio_posts_multipart_audio_and_model(tmp_path):
     assert "multipart/form-data" in captured["headers"]["Content-type"]
     assert b'name="model"' in captured["body"]
     assert b"turbo" in captured["body"]
-    assert b'name="audio"; filename="clip.ogg"' in captured["body"]
+    assert b'name="file"; filename="clip.ogg"' in captured["body"]
     assert b"audio-bytes" in captured["body"]
+
+
+def test_transcribe_audio_retries_accepted_model_download(tmp_path, monkeypatch):
+    audio_file = tmp_path / "clip.ogg"
+    audio_file.write_bytes(b"audio-bytes")
+    calls = 0
+
+    def opener(request, timeout):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return FakeResponse(202, {"detail": "Model download started"})
+        return FakeResponse(200, {"text": "download finished", "language": "en"})
+
+    monkeypatch.setattr("voicebox_client.time.sleep", lambda _seconds: None)
+    client = VoiceboxClient(base_url="http://127.0.0.1:17493", opener=opener)
+
+    result = client.transcribe_audio(audio_file, model="turbo", poll_interval=0.01)
+
+    assert calls == 2
+    assert result.text == "download finished"
 
 
 def test_create_voice_profile_posts_cloned_profile_payload():

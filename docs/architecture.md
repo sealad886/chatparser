@@ -19,7 +19,7 @@ local artifact metadata, user review state, and export packaging.
 Evidence from the upstream Voicebox README:
 
 - Voicebox exposes a REST API for voice I/O at `http://127.0.0.1:17493`.
-- `POST /transcribe` accepts multipart form data with `audio` and `model`.
+- `POST /transcribe` accepts multipart form data with `file` and `model`.
 - `POST /generate` accepts JSON with `text`, `profile_id`, and `language`.
 - `GET /profiles` lists voice profiles.
 - Voicebox states that models, voice data, and captures remain local.
@@ -120,7 +120,7 @@ flowchart TB
 1. User selects attachments or starts a project-level transcription job.
 2. Job runner filters audio/video files without accepted transcript versions.
 3. For each file, app sends `multipart/form-data` to
-   `POST http://127.0.0.1:17493/transcribe` with fields `audio` and `model`.
+   `POST http://127.0.0.1:17493/transcribe` with fields `file` and `model`.
 4. Voicebox returns transcript data.
 5. App stores transcript version, confidence metadata if available, model name,
    source checksum, and Voicebox endpoint metadata.

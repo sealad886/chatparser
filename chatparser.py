@@ -103,7 +103,7 @@ def set_globals():
     # because apparently semafore locks with multiprocessing are broken, we have to do this:
     try:
         mp.set_start_method('fork')
-    except RuntimeError:
+    except (RuntimeError, ValueError):
         pass
     os.makedirs(".locks/", exist_ok=True)
     os.environ["TMPDIR"] = os.path.abspath(".locks")
@@ -357,13 +357,16 @@ def process_chat_file_by_type(chat_file: str, audio_folder: str, model_prompt: s
             line = line.replace("\u200e","")
             parsed = parse_whatsapp_line(line)
             if parsed is None:
-                if to_type == "audio" and prev_spr_lines:
-                    prev_spr_lines.append(line.strip())
-                    if lastline and prev_date_time_str is not None:
-                        spkr_multi_lines = ". ".join(prev_spr_lines)
-                        if spkr_multi_lines:
-                            line_to_audio(spkr_multi_lines, prev_spkr or "", prev_date_time_str, audio_folder, chat_num, spkr_profiles)
-                        prev_spr_lines.clear()
+                if to_type == "audio":
+                    if prev_spr_lines:
+                        prev_spr_lines.append(line.strip())
+                        if lastline and prev_date_time_str is not None:
+                            spkr_multi_lines = ". ".join(prev_spr_lines)
+                            if spkr_multi_lines:
+                                line_to_audio(spkr_multi_lines, prev_spkr or "", prev_date_time_str, audio_folder, chat_num, spkr_profiles)
+                            prev_spr_lines.clear()
+                        continue
+                    file_out.append(line.strip() + "\n")
                     continue
                 if file_out:
                     file_out[-1] = file_out[-1].rstrip("\n") + f"\n{line}\n"
@@ -435,6 +438,11 @@ def process_chat_file_by_type(chat_file: str, audio_folder: str, model_prompt: s
             prev_date_time_str = date_time_str
             if __ENABLE_TIMINGS: tt([f'{i}_loop_end',now()])
             chat_num+=1
+        if to_type == "audio" and prev_spr_lines and prev_date_time_str is not None:
+            spkr_multi_lines = ". ".join(prev_spr_lines)
+            if spkr_multi_lines:
+                line_to_audio(spkr_multi_lines, prev_spkr or "", prev_date_time_str, audio_folder, chat_num, spkr_profiles)
+            prev_spr_lines.clear()
         if __ENABLE_TIMINGS: tt(['lines_loop_end',now()])
 
     #######################################################

@@ -77,14 +77,32 @@ class VoiceboxClient:
             raise VoiceboxError("Voicebox profile sample upload returned an unexpected response")
         return payload
 
-    def transcribe_audio(self, audio_path: str | Path, model: str = "turbo") -> TranscriptionResult:
+    def transcribe_audio(
+        self,
+        audio_path: str | Path,
+        model: str = "turbo",
+        poll_interval: float = 2.0,
+        max_download_wait_seconds: int = 600,
+    ) -> TranscriptionResult:
         path = Path(audio_path)
         fields = {"model": model}
-        files = {"audio": path}
+        files = {"file": path}
         headers, body = self._multipart_body(fields, files)
-        response = self._request("POST", "/transcribe", data=body, headers=headers)
-        payload = self._decode_json(response)
+        deadline = time.monotonic() + max_download_wait_seconds
+        while True:
+            response = self._request("POST", "/transcribe", data=body, headers=headers)
+            status = self._status_code(response)
+            payload = self._decode_json(response)
+            if status != 202:
+                break
+            if time.monotonic() >= deadline:
+                raise VoiceboxError(f"Voicebox model download did not complete before retry timeout: {payload}")
+            time.sleep(poll_interval)
+        if not isinstance(payload, dict):
+            raise VoiceboxError("Voicebox /transcribe returned an unexpected response")
         text = str(payload.get("text") or payload.get("transcript") or "")
+        if not text:
+            raise VoiceboxError(f"Voicebox /transcribe returned no transcript text: {payload}")
         language = payload.get("language")
         return TranscriptionResult(text=text, language=str(language) if language else None, raw=payload)
 
@@ -170,6 +188,16 @@ class VoiceboxClient:
         if not isinstance(decoded, (dict, list)):
             raise VoiceboxError("Voicebox returned an unexpected JSON shape")
         return decoded
+
+    def _status_code(self, response: Any) -> int | None:
+        status = getattr(response, "status", None)
+        if status is not None:
+            return int(status)
+        getcode = getattr(response, "getcode", None)
+        if callable(getcode):
+            code = getcode()
+            return int(code) if code is not None else None
+        return None
 
     def _decode_generation_status(self, response: Any) -> dict[str, Any]:
         with response:

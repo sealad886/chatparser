@@ -186,3 +186,39 @@ def test_audio_export_preserves_multiline_message_continuation(tmp_path, monkeyp
 
     assert fake_client.generated
     assert "Meet at the station. and bring the tickets" in fake_client.generated[0]["text"]
+
+
+def test_audio_export_preserves_unparseable_preamble(tmp_path, monkeypatch):
+    export_dir = tmp_path / "export"
+    export_dir.mkdir()
+    chat_file = export_dir / "_chat.txt"
+    chat_file.write_text(
+        "Messages and calls are end-to-end encrypted.\n"
+        "[01/02/2024, 18:30:00] Alice: Meet at the station\n",
+        encoding="utf-8",
+    )
+    fake_client = FakeVoiceboxClient()
+    monkeypatch.setattr(chatparser, "__VOICEBOX_CLIENT", fake_client)
+    monkeypatch.setattr(chatparser, "__VOICEBOX_PROFILE", "alice-profile")
+    monkeypatch.setattr(chatparser, "__VOICEBOX_PROFILE_MAP", {})
+    monkeypatch.setattr(chatparser, "__VOICEBOX_LANGUAGE", "en")
+    monkeypatch.setattr(chatparser, "__FORCE_REDO", True)
+    monkeypatch.setattr(chatparser, "__PROGRESS_BAR", False)
+    monkeypatch.setattr(chatparser, "__VERBOSE", False)
+    monkeypatch.setattr(chatparser, "__ENABLE_TIMINGS", False)
+    monkeypatch.setattr(chatparser, "__NUM_WORKERS", 1)
+    monkeypatch.setattr(chatparser, "_check_spelling", lambda text: text)
+    monkeypatch.setattr(chatparser, "q", chatparser.Queue())
+    monkeypatch.setattr(chatparser, "workers", [])
+    file_out = []
+
+    chatparser.process_chat_file_by_type(
+        str(chat_file),
+        str(export_dir),
+        "",
+        file_out,
+        to_type="audio",
+    )
+
+    assert file_out == ["Messages and calls are end-to-end encrypted.\n"]
+    assert fake_client.generated
