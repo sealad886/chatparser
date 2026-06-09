@@ -724,6 +724,10 @@ private struct SuggestedConversationClipRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
+            AttachmentMediaPlayer(url: suggestion.audioAttachment.url, isVideo: suggestion.audioAttachment.isVideo)
+                .frame(height: 56)
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+
             HStack(spacing: 8) {
                 Image(systemName: "waveform")
                     .foregroundStyle(.secondary)

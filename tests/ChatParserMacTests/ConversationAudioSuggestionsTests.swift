@@ -33,6 +33,7 @@ struct ConversationAudioSuggestionsTests {
         #expect(suggestions.map(\.speaker) == ["Alice"])
         #expect(suggestions.map(\.filename) == ["alice.opus"])
         #expect(suggestions.first?.referenceText == "first voice note")
+        #expect(suggestions.first?.audioAttachment.isPlayableMedia == true)
     }
 
     @Test func suggestionsStripIOSAndAndroidAttachmentMarkers() throws {

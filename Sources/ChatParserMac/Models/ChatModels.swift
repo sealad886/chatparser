@@ -46,6 +46,10 @@ struct ConversationAudioClipSuggestion: Identifiable, Equatable {
         "\(messageID)-\(url.standardizedFileURL.path)"
     }
 
+    var audioAttachment: ChatAttachment {
+        ChatAttachment(filename: filename, url: url, isAudio: true)
+    }
+
     static func suggestions(
         forProfileID profileID: String,
         messages: [ChatMessage],
