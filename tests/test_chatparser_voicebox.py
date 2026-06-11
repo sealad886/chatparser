@@ -1,3 +1,4 @@
+import sys
 from types import SimpleNamespace
 
 import chatparser
@@ -23,6 +24,24 @@ class FakeVoiceboxClient:
         )
         output_path.write_bytes(b"generated audio")
         return output_path
+
+
+class FakeAudioSegment:
+    @classmethod
+    def empty(cls):
+        return cls()
+
+    @classmethod
+    def from_file(cls, audio_file):
+        assert audio_file
+        return cls()
+
+    def __iadd__(self, other):
+        return self
+
+    def export(self, handle, format):
+        assert format == "mp3"
+        handle.write(b"mp3-bytes")
 
 
 def test_transcribe_audio_line_appends_voicebox_transcript(tmp_path, monkeypatch):
@@ -51,6 +70,13 @@ def test_transcribe_audio_line_appends_voicebox_transcript(tmp_path, monkeypatch
     assert "[01/01/2024, 12:00:00] Alice: [Transcribed]: voicebox transcript" in transcription
     assert "(en)" in transcription
     assert f"[File: {audio.name}]" in transcription
+
+
+def test_format_parsed_whatsapp_line_preserves_plain_message():
+    parsed = chatparser.parse_whatsapp_line("[01/01/2024, 12:00:00] Alice: hello")
+
+    assert parsed is not None
+    assert chatparser.format_parsed_whatsapp_line(parsed) == "[01/01/2024, 12:00:00] Alice: hello\n"
 
 
 def test_normalize_voicebox_transcription_model_accepts_legacy_whisper_prefix():
@@ -222,3 +248,95 @@ def test_audio_export_preserves_unparseable_preamble(tmp_path, monkeypatch):
 
     assert file_out == ["Messages and calls are end-to-end encrypted.\n"]
     assert fake_client.generated
+
+
+def test_text_export_preserves_non_attachment_messages(tmp_path, monkeypatch):
+    export_dir = tmp_path / "export"
+    export_dir.mkdir()
+    chat_file = export_dir / "_chat.txt"
+    chat_file.write_text(
+        "[01/02/2024, 18:30:00] Alice: Meet at the station\n"
+        "[01/02/2024, 18:31:00] Bob: See you there\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(chatparser, "__FORCE_REDO", True)
+    monkeypatch.setattr(chatparser, "__PROGRESS_BAR", False)
+    monkeypatch.setattr(chatparser, "__VERBOSE", False)
+    monkeypatch.setattr(chatparser, "__ENABLE_TIMINGS", False)
+    monkeypatch.setattr(chatparser, "__NUM_WORKERS", 1)
+    monkeypatch.setattr(chatparser, "q", chatparser.Queue())
+    monkeypatch.setattr(chatparser, "workers", [])
+    file_out = []
+
+    chatparser.process_chat_file_by_type(
+        str(chat_file),
+        str(export_dir),
+        "",
+        file_out,
+        to_type="text",
+    )
+
+    assert file_out == [
+        "[01/02/2024, 18:30:00] Alice: Meet at the station\n",
+        "[01/02/2024, 18:31:00] Bob: See you there\n",
+    ]
+
+
+def test_audio_export_converts_existing_attachment_with_visible_output(tmp_path, monkeypatch):
+    export_dir = tmp_path / "export"
+    export_dir.mkdir()
+    chat_file = export_dir / "_chat.txt"
+    chat_file.write_text(
+        "[01/02/2024, 18:30:00] Alice: <attached: clip.ogg>\n",
+        encoding="utf-8",
+    )
+    (export_dir / "clip.ogg").write_bytes(b"ogg-bytes")
+    monkeypatch.setitem(sys.modules, "pydub", SimpleNamespace(AudioSegment=FakeAudioSegment))
+    monkeypatch.setattr(chatparser, "__FORCE_REDO", True)
+    monkeypatch.setattr(chatparser, "__PROGRESS_BAR", False)
+    monkeypatch.setattr(chatparser, "__VERBOSE", False)
+    monkeypatch.setattr(chatparser, "__ENABLE_TIMINGS", False)
+    monkeypatch.setattr(chatparser, "__NUM_WORKERS", 1)
+    monkeypatch.setattr(chatparser, "q", chatparser.Queue())
+    monkeypatch.setattr(chatparser, "workers", [])
+
+    chatparser.process_chat_file_by_type(
+        str(chat_file),
+        str(export_dir),
+        "",
+        [],
+        to_type="audio",
+    )
+
+    assert (export_dir / "audio_out" / "clip.mp3").read_bytes() == b"mp3-bytes"
+
+
+def test_audio_export_missing_attachment_fails_visibly(tmp_path, monkeypatch):
+    export_dir = tmp_path / "export"
+    export_dir.mkdir()
+    chat_file = export_dir / "_chat.txt"
+    chat_file.write_text(
+        "[01/02/2024, 18:30:00] Alice: <attached: missing.ogg>\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setitem(sys.modules, "pydub", SimpleNamespace(AudioSegment=FakeAudioSegment))
+    monkeypatch.setattr(chatparser, "__FORCE_REDO", True)
+    monkeypatch.setattr(chatparser, "__PROGRESS_BAR", False)
+    monkeypatch.setattr(chatparser, "__VERBOSE", False)
+    monkeypatch.setattr(chatparser, "__ENABLE_TIMINGS", False)
+    monkeypatch.setattr(chatparser, "__NUM_WORKERS", 1)
+    monkeypatch.setattr(chatparser, "q", chatparser.Queue())
+    monkeypatch.setattr(chatparser, "workers", [])
+
+    try:
+        chatparser.process_chat_file_by_type(
+            str(chat_file),
+            str(export_dir),
+            "",
+            [],
+            to_type="audio",
+        )
+    except FileNotFoundError as exc:
+        assert "missing.ogg" in str(exc)
+    else:
+        raise AssertionError("missing attachment should fail the parent process")

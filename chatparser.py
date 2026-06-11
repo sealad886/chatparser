@@ -251,6 +251,12 @@ def _is_audio_attachment(filename: str) -> bool:
     suffix = Path(filename).suffix.lower()
     return "AUDIO" in upper or upper.startswith(("AUD-", "PTT-")) or suffix in {".opus", ".ogg", ".m4a", ".mp3", ".wav", ".aac", ".flac", ".webm"}
 
+
+def format_parsed_whatsapp_line(parsed: ParsedWhatsAppLine) -> str:
+    if parsed.speaker:
+        return f"[{parsed.date_time_str}] {parsed.speaker}: {parsed.message}\n"
+    return f"[{parsed.date_time_str}] {parsed.message}\n"
+
 '''
 def spellcheck(i: int, line: str) -> str:
     try:
@@ -295,12 +301,6 @@ def process_chat_file_by_type(chat_file: str, audio_folder: str, model_prompt: s
     if wkrs is None: 
         global workers
         wkrs = workers
-    
-    # Start worker processes
-    for i in range(0, num_workers):
-        p = Process(target=worker, args=[tasks])
-        wkrs.append(p)
-        p.start()
 
     # End multiprocessing section
     #######################################################
@@ -330,7 +330,7 @@ def process_chat_file_by_type(chat_file: str, audio_folder: str, model_prompt: s
         if not __FORCE_REDO and os.path.isfile(processed_file):
             print(f"Quitting early: {chat_file} has already been transcribed.")
             return
-        
+
         spkr_profiles = {}
         
         model_dir = __VOICEBOX_MODEL
@@ -386,17 +386,10 @@ def process_chat_file_by_type(chat_file: str, audio_folder: str, model_prompt: s
                 if attachment.is_audio and to_type == "text":
                     transcribe_audio_line(audio_folder, attachment, model_dir, model_prompt, date_time_str, spkrname, file_out, chat_num)
                 elif attachment.is_audio and to_type == "audio":
-                    #
-                    # this is adding too pool
-                    #
-                    #ctr=chat_num
-                    #wkrs.append(wk_pool.submit(move_audio_file, line, audio_folder, ctr))
-                    #move_audio_file(line, audio_folder, chat_num)
-                    tasks.put((_move_audio_file_mt, (attachment, audio_folder, chat_num, __VERBOSE)))
-                    print(f"Task queued: {line}") if __VERBOSE else None
+                    move_audio_file(attachment, audio_folder, chat_num)
                 else:
                     print(f"Need to move: {line}") if __VERBOSE else None
-                    file_out.append(line.strip() + "\n")
+                    file_out.append(format_parsed_whatsapp_line(parsed))
             elif to_type == "audio": 
                 if prev_datetime is not None:
                     if (cur_datetime - prev_datetime) > timedelta(hours=12):
@@ -433,7 +426,7 @@ def process_chat_file_by_type(chat_file: str, audio_folder: str, model_prompt: s
 
                 prepend_text = None
             else:
-                print(f"Don't know what to do with this line {i}")
+                file_out.append(format_parsed_whatsapp_line(parsed))
             prev_datetime = cur_datetime
             prev_date_time_str = date_time_str
             if __ENABLE_TIMINGS: tt([f'{i}_loop_end',now()])
@@ -468,11 +461,16 @@ def move_audio_file(attachment, audio_folder, ctr) -> None:
 
     filename = attachment.filename if isinstance(attachment, WhatsAppAttachment) else re.search(r"<attached:.+?>", attachment).group(0)[10:-1].strip()
     audio_file = os.path.join(audio_folder, filename)
+    if not os.path.isfile(audio_file):
+        raise FileNotFoundError(f"Audio attachment not found: {audio_file}")
     
-    target_file = os.path.join(audio_folder, "audio_out", filename)[:-4]+"mp3"
+    output_dir = os.path.join(audio_folder, "audio_out")
+    os.makedirs(output_dir, exist_ok=True)
+    target_file = str(Path(output_dir) / f"{Path(filename).stem}.mp3")
     print(f"Moving to: {target_file}") if __VERBOSE else None
     if os.path.exists(target_file): 
         print(f"Already exists: {target_file}") if __VERBOSE else None
+        return
     tmpaudio = AudioSegment.empty()
     tmpaudio += AudioSegment.from_file(audio_file)
     with open(target_file, "wb") as a:
@@ -634,7 +632,9 @@ def __parser_allowed_dir(input):
     if os.path.isdir(input) and os.access(input, os.R_OK):
         return input
     else:
-        AssertionError("ERROR: The given argument in --input_file is not a directory or is not accessible:", input)
+        raise argparse.ArgumentTypeError(
+            f"ERROR: The given argument in --input-directory is not a directory or is not accessible: {input}"
+        )
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
@@ -700,13 +700,19 @@ if __name__ == "__main__":
         "--prompt-file", 
         type=str, 
         default="chatparser.model_prompt.txt",
-        help="List a text file which contains a string to give to the whisper.transformer model as a initial prompt. The default file and location is ./chatparser.model_prompt.txt. If you set this to a file that returns an empty string, chatparser will still attempt to give the model some context by extracting your locale. If locale can not be determined, a default of enUS is used. Text is: 'The locale of the user owning this audio file is {locale} so assume a higher likelihood that speech is in the language and accent common to that locale.'")
+        help="List a text file which contains context for transcription. The default file and location is ./chatparser.model_prompt.txt. If you set this to a file that returns an empty string, chatparser will still attempt to give Voicebox some context by extracting your locale. If locale can not be determined, a default of enUS is used. Text is: 'The locale of the user owning this audio file is {locale} so assume a higher likelihood that speech is in the language and accent common to that locale.'")
     parser.add_argument(
         "-P", 
         "--progress-bar",
         dest="PROGRESS_BAR", 
         action="store_true",
-        help="If set, displays a progress bar for each directory that is being converted.")
+        default=True,
+        help="Display progress bars for each directory and chat file. Enabled by default.")
+    parser.add_argument(
+        "--no-progress-bar",
+        dest="PROGRESS_BAR",
+        action="store_false",
+        help="Disable progress bars for non-interactive logs.")
     parser.add_argument(
         "--force-redo",
         dest="FORCE_REDO",
@@ -758,7 +764,7 @@ if __name__ == "__main__":
     # and give that as a default prompt to the translator
     if model_input == "":
         locale = getlocale()[0]
-        locale = "enUS" if locale == "" else None
+        locale = locale or "enUS"
         model_input = f"The locale of the user owning this audio file is {locale}, so assume a higher likelihood that speech is in the language and accent common to that locale."
 
     __MODEL_NAME = args.model
@@ -772,6 +778,9 @@ if __name__ == "__main__":
 
     # this for-loop handles multiple --input-directory uses in the CLI
     # process_directories handles recursion on its own
+    if not args.input_directory:
+        parser.error("at least one --input-directory is required")
+
     for dir in args.input_directory:
         try:
             process_directories(dir, model_input, to_type, num_workers=__NUM_WORKERS)

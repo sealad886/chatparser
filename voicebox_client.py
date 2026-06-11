@@ -43,8 +43,9 @@ class VoiceboxClient:
             return response
         if isinstance(response, dict):
             profiles = response.get("profiles")
-            return profiles if isinstance(profiles, list) else []
-        return []
+            if isinstance(profiles, list):
+                return profiles
+        raise VoiceboxError("Voicebox /profiles returned an unexpected response")
 
     def create_voice_profile(
         self,
@@ -137,8 +138,7 @@ class VoiceboxClient:
             self._wait_for_generation(str(generation_id), poll_interval, max_wait_seconds)
 
         audio_response = self._request("GET", f"/audio/{generation_id}")
-        with audio_response:
-            body = audio_response.read()
+        body = self._read_audio_response(audio_response)
         destination = Path(output_path)
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_bytes(body)
@@ -192,6 +192,16 @@ class VoiceboxClient:
             raise VoiceboxError("Voicebox returned an unexpected JSON shape")
         return decoded
 
+    def _read_audio_response(self, response: Any) -> bytes:
+        content_type = self._content_type(response)
+        with response:
+            body = response.read()
+        if not body:
+            raise VoiceboxError("Voicebox returned an empty audio response")
+        if content_type and not content_type.startswith("audio/"):
+            raise VoiceboxError(f"Voicebox returned non-audio content from /audio: {content_type}")
+        return body
+
     def _status_code(self, response: Any) -> int | None:
         status = getattr(response, "status", None)
         if status is not None:
@@ -239,6 +249,8 @@ class VoiceboxClient:
         return latest
 
     def _decode_generation_status_event(self, response: Any) -> dict[str, Any]:
+        latest: dict[str, Any] | None = None
+        terminal_statuses = {"completed", "failed", "cancelled", "canceled", "error", "not_found"}
         with response:
             while True:
                 line = response.readline()
@@ -255,7 +267,11 @@ class VoiceboxClient:
                 except json.JSONDecodeError as exc:
                     raise VoiceboxError("Voicebox returned malformed generation status SSE") from exc
                 if isinstance(decoded, dict):
-                    return decoded
+                    latest = decoded
+                    if str(decoded.get("status", "")).lower() in terminal_statuses:
+                        return decoded
+        if latest is not None:
+            return latest
         raise VoiceboxError("Voicebox returned an empty generation status SSE")
 
     def _content_type(self, response: Any) -> str:

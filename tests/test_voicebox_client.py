@@ -227,11 +227,81 @@ def test_generate_speech_waits_for_queued_generation_before_audio_fetch(tmp_path
     assert output_file.read_bytes() == b"wav-bytes"
 
 
+def test_generate_speech_consumes_streaming_status_until_terminal_event(tmp_path, monkeypatch):
+    output_file = tmp_path / "speech.wav"
+    captured = []
+
+    def opener(request, timeout):
+        captured.append(request.full_url)
+        if request.full_url.endswith("/generate"):
+            return FakeResponse(200, {"id": "gen-123", "status": "generating"})
+        if request.full_url.endswith("/generate/gen-123/status"):
+            return StreamingFakeResponse(
+                b'data: {"id":"gen-123","status":"generating"}\n\n'
+                b'data: {"id":"gen-123","status":"completed"}\n\n'
+            )
+        if request.full_url.endswith("/audio/gen-123"):
+            return FakeResponse(200, b"wav-bytes", {"Content-Type": "audio/wav"})
+        raise AssertionError(request.full_url)
+
+    monkeypatch.setattr("voicebox_client.time.sleep", lambda _seconds: None)
+    client = VoiceboxClient(base_url="http://127.0.0.1:17493", opener=opener)
+
+    written = client.generate_speech(
+        text="Local WhatsApp message",
+        output_path=output_file,
+        profile_id="voice-123",
+        poll_interval=0.01,
+    )
+
+    assert written == output_file
+    assert captured == [
+        "http://127.0.0.1:17493/generate",
+        "http://127.0.0.1:17493/generate/gen-123/status",
+        "http://127.0.0.1:17493/audio/gen-123",
+    ]
+    assert output_file.read_bytes() == b"wav-bytes"
+
+
 def test_generate_speech_requires_profile_id(tmp_path):
     client = VoiceboxClient(base_url="http://127.0.0.1:17493", opener=lambda request, timeout: None)
 
     with pytest.raises(VoiceboxError, match="profile_id"):
         client.generate_speech("hello", tmp_path / "out.wav")
+
+
+def test_generate_speech_rejects_empty_audio_response(tmp_path):
+    output_file = tmp_path / "speech.wav"
+
+    def opener(request, timeout):
+        if request.full_url.endswith("/generate"):
+            return FakeResponse(200, {"id": "gen-123", "status": "completed"})
+        if request.full_url.endswith("/audio/gen-123"):
+            return FakeResponse(200, b"", {"Content-Type": "audio/wav"})
+        raise AssertionError(request.full_url)
+
+    client = VoiceboxClient(base_url="http://127.0.0.1:17493", opener=opener)
+
+    with pytest.raises(VoiceboxError, match="empty audio response"):
+        client.generate_speech("hello", output_file, profile_id="voice-123")
+    assert not output_file.exists()
+
+
+def test_generate_speech_rejects_non_audio_response(tmp_path):
+    output_file = tmp_path / "speech.wav"
+
+    def opener(request, timeout):
+        if request.full_url.endswith("/generate"):
+            return FakeResponse(200, {"id": "gen-123", "status": "completed"})
+        if request.full_url.endswith("/audio/gen-123"):
+            return FakeResponse(200, {"detail": "not ready"}, {"Content-Type": "application/json"})
+        raise AssertionError(request.full_url)
+
+    client = VoiceboxClient(base_url="http://127.0.0.1:17493", opener=opener)
+
+    with pytest.raises(VoiceboxError, match="non-audio content"):
+        client.generate_speech("hello", output_file, profile_id="voice-123")
+    assert not output_file.exists()
 
 
 def test_voicebox_errors_include_endpoint_and_status():
@@ -261,3 +331,23 @@ def test_list_profiles_accepts_top_level_list():
     client = VoiceboxClient(base_url="http://127.0.0.1:17493", opener=opener)
 
     assert client.list_profiles() == [{"id": "voice-123", "name": "Alice"}]
+
+
+def test_list_profiles_accepts_profiles_wrapper():
+    def opener(request, timeout):
+        return FakeResponse(200, {"profiles": [{"id": "voice-123", "name": "Alice"}]})
+
+    client = VoiceboxClient(base_url="http://127.0.0.1:17493", opener=opener)
+
+    assert client.list_profiles() == [{"id": "voice-123", "name": "Alice"}]
+
+
+@pytest.mark.parametrize("payload", [{"profiles": "bad"}, {}, {"items": []}])
+def test_list_profiles_rejects_unexpected_shapes(payload):
+    def opener(request, timeout):
+        return FakeResponse(200, payload)
+
+    client = VoiceboxClient(base_url="http://127.0.0.1:17493", opener=opener)
+
+    with pytest.raises(VoiceboxError, match="unexpected response"):
+        client.list_profiles()

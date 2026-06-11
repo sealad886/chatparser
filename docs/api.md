@@ -30,9 +30,10 @@ Source: <https://github.com/jamiepine/voicebox/blob/main/README.md>
 
 ### Health Check
 
-Voicebox README does not document a dedicated health endpoint. ChatParser should
-test availability with a short-timeout `GET /profiles` call because profile
-listing is documented and side-effect free.
+ChatParser checks service readiness with a short-timeout `GET /health` call
+when the bundled server starts. Profile-dependent generation workflows also
+check `GET /profiles` because profile listing is side-effect free and proves
+the profile store is reachable.
 
 Expected handling:
 
@@ -86,7 +87,7 @@ Fields:
 
 | Field | Type | Required | Description |
 |---|---|---:|---|
-| audio | File | Yes | Audio file, staged from project workspace. |
+| file | File | Yes | Audio file, staged from project workspace. |
 | model | Text | Yes | Voicebox model name, for example `turbo`. |
 
 Example:

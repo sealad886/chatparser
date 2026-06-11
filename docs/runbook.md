@@ -18,7 +18,7 @@ Before import or batch processing:
 4. Confirm the Voicebox submodule is initialized and prepared:
    `git submodule update --init --recursive external/voicebox` and
    `./script/setup_voicebox.sh`.
-5. Confirm Voicebox availability with `GET http://127.0.0.1:17493/profiles`
+5. Confirm Voicebox availability with `GET http://127.0.0.1:17493/health`
    when transcription or generation is requested.
 6. Confirm selected transcription model is configured, for example
    `turbo`.
@@ -27,6 +27,7 @@ Before import or batch processing:
 Manual Voicebox checks:
 
 ```bash
+curl http://127.0.0.1:17493/health
 curl http://127.0.0.1:17493/profiles
 
 curl -X POST http://127.0.0.1:17493/transcribe \
