@@ -95,7 +95,7 @@ flowchart TB
 | Component | Responsibility | Notes |
 |---|---|---|
 | macOS shell | File picker, project selection, settings, job launch, review screens | SwiftPM-first native shell per ADR-001. |
-| WhatsApp parser | Parse `_chat.txt` and associate attachment references with files | Parser must tolerate locale-specific timestamps and missing media. |
+| WhatsApp parser | Parse iPhone `_chat.txt` and Android `WhatsApp Chat with <name>.txt` files, then associate attachment references with files | Parser must tolerate locale-specific timestamps and missing media. |
 | Media normalizer | Copy or hard-link allowed media into project staging | Must never rewrite source exports. |
 | Job runner | Batch transcription, generation, transformation, export | Must display file-level progress and ETA for folder/file loops. |
 | Voicebox REST client | Typed client for `/transcribe`, `/generate`, `/profiles` | Uses localhost HTTP only; no direct model imports. |

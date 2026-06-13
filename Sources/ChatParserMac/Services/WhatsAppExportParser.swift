@@ -62,17 +62,40 @@ struct WhatsAppExportParser: Sendable {
         if FileManager.default.fileExists(atPath: direct.path) {
             return direct
         }
+        if let androidDirect = try androidNamedChatFile(in: folder) {
+            return androidDirect
+        }
         let enumerator = FileManager.default.enumerator(
             at: folder,
             includingPropertiesForKeys: nil,
             options: [.skipsHiddenFiles, .skipsPackageDescendants]
         )
         while let file = enumerator?.nextObject() as? URL {
-            if file.lastPathComponent == "_chat.txt" {
+            if isWhatsAppChatFile(file) {
                 return file
             }
         }
         throw CocoaError(.fileNoSuchFile)
+    }
+
+    private func androidNamedChatFile(in folder: URL) throws -> URL? {
+        let contents = try FileManager.default.contentsOfDirectory(
+            at: folder,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        )
+        return contents.first { isWhatsAppChatFile($0) }
+    }
+
+    private func isWhatsAppChatFile(_ file: URL) -> Bool {
+        let name = file.lastPathComponent
+        if name == "_chat.txt" {
+            return true
+        }
+        let lower = name.lowercased()
+        return lower.hasSuffix(".txt")
+            && !lower.contains("-aud2txt")
+            && lower.hasPrefix("whatsapp chat")
     }
 
     private static func makeTimestampFormatters() -> [DateFormatter] {

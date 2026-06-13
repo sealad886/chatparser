@@ -53,6 +53,34 @@ def test_android_audio_attachment_is_detected_from_file_attached_suffix():
     assert attachment.is_audio
 
 
+def test_android_ptt_attachment_is_detected_from_canonical_export_shape():
+    parsed = chatparser.parse_whatsapp_line("30/05/2026, 00:33 - Alice: PTT-20260530-WA0000.opus (file attached)")
+
+    assert parsed is not None
+    attachment = chatparser.find_whatsapp_attachment(parsed.message)
+
+    assert attachment is not None
+    assert attachment.filename == "PTT-20260530-WA0000.opus"
+    assert attachment.is_audio
+
+
+def test_android_image_attachment_is_detected_as_non_audio():
+    parsed = chatparser.parse_whatsapp_line("31/05/2026, 10:20 - Alice: IMG-20260531-WA0131.jpg (file attached)")
+
+    assert parsed is not None
+    attachment = chatparser.find_whatsapp_attachment(parsed.message)
+
+    assert attachment is not None
+    assert attachment.filename == "IMG-20260531-WA0131.jpg"
+    assert not attachment.is_audio
+
+
+def test_android_named_chat_file_is_supported():
+    assert chatparser.is_whatsapp_chat_file("WhatsApp Chat with Alice.txt")
+    assert chatparser.is_whatsapp_chat_file("_chat.txt")
+    assert not chatparser.is_whatsapp_chat_file("WhatsApp Chat with Alice-aud2txt.txt")
+
+
 def test_ios_audio_attachment_still_detected():
     attachment = chatparser.find_whatsapp_attachment("<attached: 00000001-AUDIO-2024-01-01-00-00-00.ogg>")
 
@@ -91,3 +119,25 @@ def test_process_android_export_transcribes_audio_attachment(tmp_path, monkeypat
 
     assert fake_client.transcribed == [(str(export_dir / "AUD-20241231-WA0001.opus"), "turbo")]
     assert "[31/12/2024, 23:05:00] Alice: [Transcribed]: voicebox transcript" in file_out[0]
+
+
+def test_process_directories_discovers_android_named_chat_file(tmp_path, monkeypatch):
+    export_dir = tmp_path / "export"
+    export_dir.mkdir()
+    chat_file = export_dir / "WhatsApp Chat with Alice.txt"
+    chat_file.write_text(
+        "30/05/2026, 00:32 - Alice: Android text message\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(chatparser, "__FORCE_REDO", True)
+    monkeypatch.setattr(chatparser, "__PROGRESS_BAR", False)
+    monkeypatch.setattr(chatparser, "__VERBOSE", False)
+    monkeypatch.setattr(chatparser, "__ENABLE_TIMINGS", False)
+    monkeypatch.setattr(chatparser, "__NUM_WORKERS", 1)
+    monkeypatch.setattr(chatparser, "q", chatparser.Queue())
+    monkeypatch.setattr(chatparser, "workers", [])
+
+    chatparser.process_directories(str(export_dir), "", "text")
+
+    processed = export_dir / "WhatsApp Chat with Alice-aud2txt.txt"
+    assert processed.read_text(encoding="utf-8") == "[30/05/2026, 00:32:00] Alice: Android text message\n"

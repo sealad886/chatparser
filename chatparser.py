@@ -239,7 +239,7 @@ def find_whatsapp_attachment(message: str) -> WhatsAppAttachment | None:
         filename = ios_match.group("filename").strip()
         return WhatsAppAttachment(filename=filename, is_audio=_is_audio_attachment(filename))
 
-    android_match = re.search(r"(?P<filename>\S+\.(?:opus|ogg|m4a|mp3|wav|aac|flac|webm))\s+\(file attached\)", message, re.IGNORECASE)
+    android_match = re.search(r"(?P<filename>\S+\.[A-Za-z0-9]+)\s+\(file attached\)", message, re.IGNORECASE)
     if android_match:
         filename = android_match.group("filename").strip()
         return WhatsAppAttachment(filename=filename, is_audio=_is_audio_attachment(filename))
@@ -250,6 +250,16 @@ def _is_audio_attachment(filename: str) -> bool:
     upper = filename.upper()
     suffix = Path(filename).suffix.lower()
     return "AUDIO" in upper or upper.startswith(("AUD-", "PTT-")) or suffix in {".opus", ".ogg", ".m4a", ".mp3", ".wav", ".aac", ".flac", ".webm"}
+
+
+def is_whatsapp_chat_file(filename: str) -> bool:
+    name = Path(filename).name
+    lower = name.lower()
+    if name == "_chat.txt":
+        return True
+    if not lower.endswith(".txt") or "-aud2txt" in lower:
+        return False
+    return lower.startswith("whatsapp chat")
 
 
 def format_parsed_whatsapp_line(parsed: ParsedWhatsAppLine) -> str:
@@ -600,7 +610,7 @@ def parse_voicebox_profile_map(items: list[str] | None, json_file: str | None = 
     return profile_map
 
 def process_directories(directory: str, model_input: str, to_type: str, num_workers: int = None) -> None:
-    # Process all _chat.txt files in a directory and its subdirectories 
+    # Process iPhone _chat.txt files and Android "WhatsApp Chat..." files.
     if os.path.isfile(directory):
         print(f"{directory} is not a valid directory.")
         return
@@ -608,7 +618,7 @@ def process_directories(directory: str, model_input: str, to_type: str, num_work
     chat_paths = []
     for root, _, files in os.walk(directory):
         for file in files:
-            if file == "_chat.txt":
+            if is_whatsapp_chat_file(file):
                 chat_paths.append((root, file))
 
     for root, file in tqdm(chat_paths, desc="WhatsApp exports", total=len(chat_paths), dynamic_ncols=True, disable=not __PROGRESS_BAR):

@@ -43,6 +43,9 @@ install and configure environments and what to install will be forthcoming in fu
 ### Phone Compatibility
 ChatParser supports WhatsApp exports from iPhone and Android.
 
+Supported chat transcript filenames include iPhone `_chat.txt` exports and
+Android `WhatsApp Chat with <name>.txt` exports.
+
 Supported message headers include:
 
 ```text
