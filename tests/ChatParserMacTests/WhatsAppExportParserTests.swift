@@ -46,4 +46,47 @@ struct WhatsAppExportParserTests {
         #expect(messages[0].speaker == "Alice")
         #expect(messages[0].text == "Android text message")
     }
+
+    @Test func parseExportPreservesAndroidSpeakerWhenMessageIsEmpty() throws {
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+
+        let chatFile = folder.appendingPathComponent("WhatsApp Chat with Alice.txt")
+        try """
+        30/05/2026, 00:32 - M:
+        30/05/2026, 00:33 - Alice:No leading space
+        30/05/2026, 00:34 - https://example.invalid
+        """.write(to: chatFile, atomically: true, encoding: .utf8)
+
+        let messages = try WhatsAppExportParser().parseExport(at: folder)
+
+        #expect(messages.count == 3)
+        #expect(messages[0].speaker == "M")
+        #expect(messages[0].text == "")
+        #expect(messages[1].speaker == "Alice")
+        #expect(messages[1].text == "No leading space")
+        #expect(messages[2].speaker == nil)
+        #expect(messages[2].text == "https://example.invalid")
+    }
+
+    @Test func parseExportAppendsContinuationWithoutLeadingNewlineWhenHeaderTextIsEmpty() throws {
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+
+        let chatFile = folder.appendingPathComponent("WhatsApp Chat with Alice.txt")
+        try """
+        30/05/2026, 00:32 - M:
+        continued message text
+        """.write(to: chatFile, atomically: true, encoding: .utf8)
+
+        let messages = try WhatsAppExportParser().parseExport(at: folder)
+
+        #expect(messages.count == 1)
+        #expect(messages[0].speaker == "M")
+        #expect(messages[0].text == "continued message text")
+    }
 }

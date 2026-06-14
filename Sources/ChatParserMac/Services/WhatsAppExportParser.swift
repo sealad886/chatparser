@@ -41,11 +41,12 @@ struct WhatsAppExportParser: Sendable {
                 current = parsed
                 sequence += 1
             } else if let existing = current {
+                let text = existing.text.isEmpty ? line : existing.text + "\n" + line
                 current = ChatMessage(
                     id: existing.id,
                     timestamp: existing.timestamp,
                     speaker: existing.speaker,
-                    text: existing.text + "\n" + line,
+                    text: text,
                     attachment: existing.attachment
                 )
             }
@@ -137,11 +138,15 @@ struct WhatsAppExportParser: Sendable {
     }
 
     private func splitSpeaker(_ body: String) -> (speaker: String?, text: String) {
-        guard let range = body.range(of: ": ") else {
+        guard let range = body.range(of: ":") else {
             return (nil, body.trimmingCharacters(in: .whitespacesAndNewlines))
         }
         let speaker = String(body[..<range.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
-        let text = String(body[range.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+        let remainder = String(body[range.upperBound...])
+        if remainder.hasPrefix("//") {
+            return (nil, body.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+        let text = remainder.trimmingCharacters(in: .whitespacesAndNewlines)
         return (speaker.isEmpty ? nil : speaker, text)
     }
 

@@ -226,11 +226,13 @@ def parse_whatsapp_line(line: str) -> ParsedWhatsAppLine | None:
 
 
 def _split_speaker_message(body: str) -> tuple[str | None, str]:
-    if ": " not in body:
+    if ":" not in body:
         return None, body.strip()
-    speaker, message = body.split(": ", 1)
+    speaker, message = body.split(":", 1)
+    if message.startswith("//"):
+        return None, body.strip()
     speaker = speaker.strip() or None
-    return speaker, message.strip()
+    return speaker, message.lstrip().strip()
 
 
 def find_whatsapp_attachment(message: str) -> WhatsAppAttachment | None:
@@ -264,7 +266,8 @@ def is_whatsapp_chat_file(filename: str) -> bool:
 
 def format_parsed_whatsapp_line(parsed: ParsedWhatsAppLine) -> str:
     if parsed.speaker:
-        return f"[{parsed.date_time_str}] {parsed.speaker}: {parsed.message}\n"
+        separator = ": " if parsed.message else ":"
+        return f"[{parsed.date_time_str}] {parsed.speaker}{separator}{parsed.message}\n"
     return f"[{parsed.date_time_str}] {parsed.message}\n"
 
 '''
