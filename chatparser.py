@@ -235,6 +235,16 @@ def _split_speaker_message(body: str) -> tuple[str | None, str]:
     return speaker, message.lstrip().strip()
 
 
+def generated_audio_filename(source_format: str | None, date_time_str: str, ctr: int) -> str:
+    timestamp = _parse_export_timestamp(date_time_str)
+    if timestamp is None:
+        raise ValueError(f"Unsupported WhatsApp timestamp: {date_time_str}")
+    sequence = int(ctr)
+    if (source_format or "").lower() == "android":
+        return f"PTT-{timestamp:%Y%m%d}-WA{sequence:04d}.wav"
+    return f"{sequence + 1:08d}-AUDIO-{timestamp:%Y-%m-%d-%H-%M-%S}.wav"
+
+
 def find_whatsapp_attachment(message: str) -> WhatsAppAttachment | None:
     ios_match = re.search(r"<attached:\s*(?P<filename>.+?)>", message)
     if ios_match:
@@ -350,12 +360,31 @@ def process_chat_file_by_type(chat_file: str, audio_folder: str, model_prompt: s
 
         prev_datetime = None
         prev_date_time_str = None
+        prev_chat_num = None
+        prev_source_format = None
         prepend_text = None
         append_text = None
         prev_spkr = None
         cur_spkr_lines, prev_spr_lines = [], []
 
         chat_num = 0 # will use this to account for multi-lines chats
+
+        def flush_audio_group():
+            nonlocal prev_chat_num, prev_date_time_str, prev_source_format
+            if not prev_spr_lines or prev_date_time_str is None:
+                return
+            spkr_multi_lines = ". ".join(prev_spr_lines)
+            if spkr_multi_lines:
+                line_to_audio(
+                    spkr_multi_lines,
+                    prev_spkr or "",
+                    prev_date_time_str,
+                    audio_folder,
+                    prev_chat_num if prev_chat_num is not None else chat_num,
+                    spkr_profiles,
+                    source_format=prev_source_format or "ios",
+                )
+            prev_spr_lines.clear()
 
         if __ENABLE_TIMINGS: tt(['lines_loop_start',now()])
         for i in tqdm(range(0, fic), desc = os.path.split(audio_folder)[1], total=fic, miniters = 1, smoothing = 0.1, dynamic_ncols=True, disable=not __PROGRESS_BAR):
@@ -374,10 +403,7 @@ def process_chat_file_by_type(chat_file: str, audio_folder: str, model_prompt: s
                     if prev_spr_lines:
                         prev_spr_lines.append(line.strip())
                         if lastline and prev_date_time_str is not None:
-                            spkr_multi_lines = ". ".join(prev_spr_lines)
-                            if spkr_multi_lines:
-                                line_to_audio(spkr_multi_lines, prev_spkr or "", prev_date_time_str, audio_folder, chat_num, spkr_profiles)
-                            prev_spr_lines.clear()
+                            flush_audio_group()
                         continue
                     file_out.append(line.strip() + "\n")
                     continue
@@ -415,40 +441,38 @@ def process_chat_file_by_type(chat_file: str, audio_folder: str, model_prompt: s
 
                 if prev_spkr is None:
                     prev_spkr = spkrname
+                    prev_date_time_str = date_time_str
+                    prev_chat_num = chat_num
+                    prev_source_format = parsed.source_format
 
                 # actually generate the audio file for lines
                 if prev_spkr != spkrname:
-                    spkr_multi_lines = ". ".join(prev_spr_lines)
                     #
                     # this is adding to pool
                     #
                     #wkrs.append(wk_pool.submit(line_to_audio, spkr_multi_lines, prev_spkr, date_time_str, audio_folder, chat_num, spkr_profiles))
-                    if spkr_multi_lines:
-                        line_to_audio(spkr_multi_lines, prev_spkr or "", date_time_str, audio_folder, chat_num, spkr_profiles)
+                    flush_audio_group()
                     prev_spkr = spkrname
-                    prev_spr_lines.clear()
+                    prev_date_time_str = date_time_str
+                    prev_chat_num = chat_num
+                    prev_source_format = parsed.source_format
                     for ln in cur_spkr_lines: prev_spr_lines.append(ln)
                     cur_spkr_lines.clear()
                     print(f"Done making audio for chat {chat_num}\n") if __VERBOSE else None
                 prev_spr_lines.append(line)
                 if lastline:
-                    spkr_multi_lines = ". ".join(prev_spr_lines)
-                    if spkr_multi_lines:
-                        line_to_audio(spkr_multi_lines, prev_spkr or spkrname or "", date_time_str, audio_folder, chat_num, spkr_profiles)
-                    prev_spr_lines.clear()
+                    flush_audio_group()
 
                 prepend_text = None
             else:
                 file_out.append(format_parsed_whatsapp_line(parsed))
             prev_datetime = cur_datetime
-            prev_date_time_str = date_time_str
+            if to_type != "audio":
+                prev_date_time_str = date_time_str
             if __ENABLE_TIMINGS: tt([f'{i}_loop_end',now()])
             chat_num+=1
         if to_type == "audio" and prev_spr_lines and prev_date_time_str is not None:
-            spkr_multi_lines = ". ".join(prev_spr_lines)
-            if spkr_multi_lines:
-                line_to_audio(spkr_multi_lines, prev_spkr or "", prev_date_time_str, audio_folder, chat_num, spkr_profiles)
-            prev_spr_lines.clear()
+            flush_audio_group()
         if __ENABLE_TIMINGS: tt(['lines_loop_end',now()])
 
     #######################################################
@@ -489,10 +513,13 @@ def move_audio_file(attachment, audio_folder, ctr) -> None:
     with open(target_file, "wb") as a:
         tmpaudio.export(a, format="mp3")
 
-def line_to_audio(line, spkrname, date_time_str, audio_folder, ctr: str, spkr_profiles: dict = {}):
-    day, mon, yr = date_time_str.split(",")[0].split("/")
+def line_to_audio(line, spkrname, date_time_str, audio_folder, ctr: int, spkr_profiles: dict = {}, source_format: str = "ios"):
     os.makedirs(os.path.join(audio_folder, "audio_out"), exist_ok=True)
-    audio_out_file = os.path.join(audio_folder, "audio_out", f"{str(ctr+1).zfill(8)}-AUDIO-{yr}-{mon}-{day}-auto-generated.wav")
+    audio_out_file = os.path.join(
+        audio_folder,
+        "audio_out",
+        generated_audio_filename(source_format, date_time_str, ctr),
+    )
     if os.path.exists(audio_out_file) and os.path.isfile(audio_out_file):
         print(f"File exists: {audio_out_file}") if __VERBOSE else None
         return audio_out_file

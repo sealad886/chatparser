@@ -192,9 +192,7 @@ final class AppState: ObservableObject {
                 for (index, message) in playable.enumerated() {
                     try Task.checkCancellation()
                     guard let speaker = message.speaker, let profileID = self.participantProfileIDs[speaker] else { continue }
-                    let safeSpeaker = speaker.replacingOccurrences(of: "[^A-Za-z0-9_-]+", with: "-", options: .regularExpression)
-                    let filename = "\(String(format: "%05d", index + 1))-\(safeSpeaker).wav"
-                    let destination = outputFolder.appendingPathComponent(filename)
+                    let destination = outputFolder.appendingPathComponent(message.generatedAudioFilename)
                     _ = try await api.generateSpeech(
                         profileID: profileID,
                         text: message.text,

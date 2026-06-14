@@ -22,15 +22,56 @@ struct ChatAttachment: Identifiable, Equatable {
     }
 }
 
+enum WhatsAppSourceFormat: String, Equatable {
+    case ios
+    case android
+}
+
 struct ChatMessage: Identifiable, Equatable {
     let id: String
     let timestamp: Date
     let speaker: String?
     let text: String
     let attachment: ChatAttachment?
+    let sourceFormat: WhatsAppSourceFormat
+    let sequenceNumber: Int
+
+    init(
+        id: String,
+        timestamp: Date,
+        speaker: String?,
+        text: String,
+        attachment: ChatAttachment?,
+        sourceFormat: WhatsAppSourceFormat = .ios,
+        sequenceNumber: Int = 0
+    ) {
+        self.id = id
+        self.timestamp = timestamp
+        self.speaker = speaker
+        self.text = text
+        self.attachment = attachment
+        self.sourceFormat = sourceFormat
+        self.sequenceNumber = sequenceNumber
+    }
 
     var participant: String {
         speaker ?? "System"
+    }
+
+    var generatedAudioFilename: String {
+        switch sourceFormat {
+        case .android:
+            return "PTT-\(formattedTimestamp("yyyyMMdd"))-WA\(String(format: "%04d", sequenceNumber)).wav"
+        case .ios:
+            return "\(String(format: "%08d", sequenceNumber + 1))-AUDIO-\(formattedTimestamp("yyyy-MM-dd-HH-mm-ss")).wav"
+        }
+    }
+
+    private func formattedTimestamp(_ format: String) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = format
+        return formatter.string(from: timestamp)
     }
 }
 

@@ -23,10 +23,33 @@ struct WhatsAppExportParserTests {
         #expect(messages.count == 2)
         #expect(messages[0].speaker == "Alice")
         #expect(messages[0].text == "Android text message")
+        #expect(messages[0].sourceFormat == .android)
+        #expect(messages[0].sequenceNumber == 0)
+        #expect(messages[0].generatedAudioFilename == "PTT-20260530-WA0000.wav")
         #expect(messages[1].speaker == "Bob")
         #expect(messages[1].text == "PTT-20260530-WA0000.opus (file attached)\ncontinuation text")
+        #expect(messages[1].sourceFormat == .android)
+        #expect(messages[1].sequenceNumber == 1)
+        #expect(messages[1].generatedAudioFilename == "PTT-20260530-WA0001.wav")
         #expect(messages[1].attachment?.filename == "PTT-20260530-WA0000.opus")
         #expect(messages[1].attachment?.isAudio == true)
+    }
+
+    @Test func generatedAudioFilenameMatchesIOSExportNaming() throws {
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+
+        let messages = WhatsAppExportParser().parse(
+            "[30/05/2026, 00:32:00] Alice: iOS text message\n",
+            mediaRoot: folder
+        )
+
+        #expect(messages.count == 1)
+        #expect(messages[0].sourceFormat == .ios)
+        #expect(messages[0].sequenceNumber == 0)
+        #expect(messages[0].generatedAudioFilename == "00000001-AUDIO-2026-05-30-00-32-00.wav")
     }
 
     @Test func parseExportFindsNestedAndroidNamedChatFile() throws {

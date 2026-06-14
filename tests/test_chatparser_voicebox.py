@@ -101,8 +101,8 @@ def test_line_to_audio_generates_speech_through_voicebox(tmp_path, monkeypatch):
         {},
     )
 
-    assert output_path.endswith("00000005-AUDIO-2024-02-01-auto-generated.wav")
-    assert (tmp_path / "audio_out" / "00000005-AUDIO-2024-02-01-auto-generated.wav").read_bytes() == b"generated audio"
+    assert output_path.endswith("00000005-AUDIO-2024-02-01-18-30-00.wav")
+    assert (tmp_path / "audio_out" / "00000005-AUDIO-2024-02-01-18-30-00.wav").read_bytes() == b"generated audio"
     assert fake_client.generated == [
         {
             "text": "Meet at the station",
@@ -131,6 +131,28 @@ def test_line_to_audio_uses_speaker_profile_mapping(tmp_path, monkeypatch):
     )
 
     assert fake_client.generated[0]["profile_id"] == "alice-profile"
+
+
+def test_line_to_audio_uses_android_export_naming(tmp_path, monkeypatch):
+    fake_client = FakeVoiceboxClient()
+    monkeypatch.setattr(chatparser, "__VOICEBOX_CLIENT", fake_client)
+    monkeypatch.setattr(chatparser, "__VOICEBOX_PROFILE", "voice-123")
+    monkeypatch.setattr(chatparser, "__VOICEBOX_PROFILE_MAP", {})
+    monkeypatch.setattr(chatparser, "__VOICEBOX_LANGUAGE", "en")
+    monkeypatch.setattr(chatparser, "__VERBOSE", False)
+
+    output_path = chatparser.line_to_audio(
+        "Meet at the station",
+        "Alice",
+        "01/02/2024, 18:30:00",
+        str(tmp_path),
+        4,
+        {},
+        source_format="android",
+    )
+
+    assert output_path.endswith("PTT-20240201-WA0004.wav")
+    assert (tmp_path / "audio_out" / "PTT-20240201-WA0004.wav").read_bytes() == b"generated audio"
 
 
 def test_parse_voicebox_profile_map_merges_json_and_cli_entries(tmp_path):
@@ -212,6 +234,46 @@ def test_audio_export_preserves_multiline_message_continuation(tmp_path, monkeyp
 
     assert fake_client.generated
     assert "Meet at the station. and bring the tickets" in fake_client.generated[0]["text"]
+
+
+def test_android_audio_export_uses_first_message_sequence_for_grouped_speech(tmp_path, monkeypatch):
+    export_dir = tmp_path / "export"
+    export_dir.mkdir()
+    chat_file = export_dir / "WhatsApp Chat with Alice.txt"
+    chat_file.write_text(
+        "30/05/2026, 00:32 - Alice: First Android line\n"
+        "continued Android text\n"
+        "30/05/2026, 00:33 - Bob: Reply from Bob\n",
+        encoding="utf-8",
+    )
+    fake_client = FakeVoiceboxClient()
+    monkeypatch.setattr(chatparser, "__VOICEBOX_CLIENT", fake_client)
+    monkeypatch.setattr(chatparser, "__VOICEBOX_PROFILE", "default-profile")
+    monkeypatch.setattr(chatparser, "__VOICEBOX_PROFILE_MAP", {"Alice": "alice-profile", "Bob": "bob-profile"})
+    monkeypatch.setattr(chatparser, "__VOICEBOX_LANGUAGE", "en")
+    monkeypatch.setattr(chatparser, "__FORCE_REDO", True)
+    monkeypatch.setattr(chatparser, "__PROGRESS_BAR", False)
+    monkeypatch.setattr(chatparser, "__VERBOSE", False)
+    monkeypatch.setattr(chatparser, "__ENABLE_TIMINGS", False)
+    monkeypatch.setattr(chatparser, "__NUM_WORKERS", 1)
+    monkeypatch.setattr(chatparser, "_check_spelling", lambda text: text)
+    monkeypatch.setattr(chatparser, "q", chatparser.Queue())
+    monkeypatch.setattr(chatparser, "workers", [])
+
+    chatparser.process_chat_file_by_type(
+        str(chat_file),
+        str(export_dir),
+        "",
+        [],
+        to_type="audio",
+    )
+
+    assert [entry["output_path"].split("/")[-1] for entry in fake_client.generated] == [
+        "PTT-20260530-WA0000.wav",
+        "PTT-20260530-WA0001.wav",
+    ]
+    assert fake_client.generated[0]["text"] == "First Android line. continued Android text"
+    assert fake_client.generated[0]["profile_id"] == "alice-profile"
 
 
 def test_audio_export_preserves_unparseable_preamble(tmp_path, monkeypatch):

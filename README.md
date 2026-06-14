@@ -57,6 +57,11 @@ Supported message headers include:
 Supported audio attachment markers include iPhone-style `<attached: ...>` entries
 and Android-style `AUD-...opus (file attached)` or `PTT-...opus (file attached)`
 entries when the referenced media file is present in the unzipped export folder.
+Generated text-to-speech clips use the same export family for their filenames:
+iPhone-style exports write `00000001-AUDIO-YYYY-MM-DD-HH-MM-SS.wav`, while
+Android-style exports write `PTT-YYYYMMDD-WA0000.wav`. The numeric portion comes
+from the parsed message sequence, so grouped multi-line speech keeps the first
+message's sequence number.
 
 Create and use a project-local virtual environment. Do not install into global
 Python:

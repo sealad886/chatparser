@@ -47,7 +47,9 @@ struct WhatsAppExportParser: Sendable {
                     timestamp: existing.timestamp,
                     speaker: existing.speaker,
                     text: text,
-                    attachment: existing.attachment
+                    attachment: existing.attachment,
+                    sourceFormat: existing.sourceFormat,
+                    sequenceNumber: existing.sequenceNumber
                 )
             }
         }
@@ -115,25 +117,27 @@ struct WhatsAppExportParser: Sendable {
         if let match = match(cleaned, pattern: #"^\[(.+?)\]\s*(.*)$"#),
            let timestamp = parseTimestamp(match[1], formatters: formatters) {
             let split = splitSpeaker(match[2])
-            return makeMessage(sequence: sequence, timestamp: timestamp, speaker: split.speaker, text: split.text, mediaRoot: mediaRoot)
+            return makeMessage(sequence: sequence, sourceFormat: .ios, timestamp: timestamp, speaker: split.speaker, text: split.text, mediaRoot: mediaRoot)
         }
 
         if let match = match(cleaned, pattern: #"^(.+?)\s+-\s+(.*)$"#),
            let timestamp = parseTimestamp(match[1], formatters: formatters) {
             let split = splitSpeaker(match[2])
-            return makeMessage(sequence: sequence, timestamp: timestamp, speaker: split.speaker, text: split.text, mediaRoot: mediaRoot)
+            return makeMessage(sequence: sequence, sourceFormat: .android, timestamp: timestamp, speaker: split.speaker, text: split.text, mediaRoot: mediaRoot)
         }
 
         return nil
     }
 
-    private func makeMessage(sequence: Int, timestamp: Date, speaker: String?, text: String, mediaRoot: URL) -> ChatMessage {
+    private func makeMessage(sequence: Int, sourceFormat: WhatsAppSourceFormat, timestamp: Date, speaker: String?, text: String, mediaRoot: URL) -> ChatMessage {
         ChatMessage(
             id: "\(mediaRoot.standardizedFileURL.path)#\(sequence)",
             timestamp: timestamp,
             speaker: speaker,
             text: text,
-            attachment: attachment(in: text, mediaRoot: mediaRoot)
+            attachment: attachment(in: text, mediaRoot: mediaRoot),
+            sourceFormat: sourceFormat,
+            sequenceNumber: sequence
         )
     }
 
