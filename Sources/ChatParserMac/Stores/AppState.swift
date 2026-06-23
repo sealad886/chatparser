@@ -366,7 +366,7 @@ final class AppState: ObservableObject {
         }
         if !force, await isVoiceboxReachable() {
             isVoiceboxServerRunning = true
-            isVoiceboxServerManaged = voiceboxServer.isRunning
+            isVoiceboxServerManaged = voiceboxServer.isManagedServerRunning(baseURLString: configuration.voiceboxURL)
             voiceboxServerMessage = isVoiceboxServerManaged ? "Voicebox server is running." : "Voicebox is already running outside ChatParser."
             return
         }
@@ -399,7 +399,7 @@ final class AppState: ObservableObject {
             voiceboxServerMessage = "Voicebox was started outside ChatParser; stop it from that process."
             return
         }
-        voiceboxServer.stop()
+        voiceboxServer.stop(baseURLString: configuration.voiceboxURL)
         isVoiceboxServerRunning = false
         isVoiceboxServerManaged = false
         voiceboxServerMessage = "Voicebox server stopped."

@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 
 enum VoiceboxServerError: LocalizedError {
     case nonLoopbackURL(String)
@@ -23,15 +24,66 @@ enum VoiceboxServerError: LocalizedError {
     }
 }
 
+struct VoiceboxManagedProcessRecord: Codable, Equatable {
+    let pid: Int32
+    let host: String
+    let port: Int
+    let startedAt: Date
+
+    func matches(host: String, port: Int) -> Bool {
+        self.host == host && self.port == port
+    }
+}
+
+protocol VoiceboxProcessInspecting: Sendable {
+    func processExists(pid: Int32) -> Bool
+    func commandLine(pid: Int32) -> String?
+    func terminate(pid: Int32)
+}
+
+struct SystemVoiceboxProcessInspector: VoiceboxProcessInspecting {
+    func processExists(pid: Int32) -> Bool {
+        kill(pid, 0) == 0 || errno == EPERM
+    }
+
+    func commandLine(pid: Int32) -> String? {
+        let process = Process()
+        let pipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/bin/ps")
+        process.arguments = ["-p", String(pid), "-o", "command="]
+        process.standardOutput = pipe
+        process.standardError = Pipe()
+        do {
+            try process.run()
+            process.waitUntilExit()
+            guard process.terminationStatus == 0 else { return nil }
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            return String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        } catch {
+            return nil
+        }
+    }
+
+    func terminate(pid: Int32) {
+        kill(pid, SIGTERM)
+    }
+}
+
 @MainActor
 final class VoiceboxServerController {
     private let rootURL: URL
+    private let processInspector: any VoiceboxProcessInspecting
     private var process: Process?
+    private var processEndpoint: (host: String, port: Int)?
     private var outputPipe: Pipe?
     private var logFileHandle: FileHandle?
 
-    init(rootURL: URL = VoiceboxServerController.resolveRepositoryRoot()) {
+    init(
+        rootURL: URL = VoiceboxServerController.resolveRepositoryRoot(),
+        processInspector: any VoiceboxProcessInspecting = SystemVoiceboxProcessInspector()
+    ) {
         self.rootURL = rootURL
+        self.processInspector = processInspector
     }
 
     var isRunning: Bool {
@@ -41,6 +93,7 @@ final class VoiceboxServerController {
     func start(baseURLString: String, onOutput: @escaping @Sendable (String) -> Void) async throws {
         guard !isRunning else { return }
         let endpoint = try endpointInfo(from: baseURLString)
+        guard managedProcessRecordIfRunning(matching: endpoint) == nil else { return }
         let voiceboxURL = rootURL.appendingPathComponent("external/voicebox")
         let backendPython = voiceboxURL.appendingPathComponent("backend/venv/bin/python")
         guard FileManager.default.fileExists(atPath: voiceboxURL.appendingPathComponent("backend/main.py").path) else {
@@ -79,6 +132,7 @@ final class VoiceboxServerController {
             onOutput("Voicebox server exited with status \(process.terminationStatus)\n")
             Task { @MainActor in
                 self?.process = nil
+                self?.processEndpoint = nil
                 self?.outputPipe = nil
                 self?.logFileHandle = nil
             }
@@ -93,15 +147,38 @@ final class VoiceboxServerController {
         }
 
         self.process = process
+        self.processEndpoint = endpoint
         self.outputPipe = pipe
         self.logFileHandle = logFile
+        do {
+            try writeManagedProcessRecord(
+                VoiceboxManagedProcessRecord(
+                    pid: process.processIdentifier,
+                    host: endpoint.host,
+                    port: endpoint.port,
+                    startedAt: Date()
+                )
+            )
+        } catch {
+            onOutput("Could not write Voicebox server ownership record: \(error.localizedDescription)\n")
+        }
         onOutput("Voicebox server log: \(logFileURL.path)\n")
         try await waitUntilReady(baseURLString: baseURLString)
     }
 
-    func stop() {
-        process?.terminate()
+    func stop(baseURLString: String? = nil) {
+        if let process {
+            let processID = process.processIdentifier
+            process.terminate()
+            clearManagedProcessRecord(processID: processID)
+        } else if let baseURLString,
+                  let endpoint = try? endpointInfo(from: baseURLString),
+                  let record = managedProcessRecordIfRunning(matching: endpoint) {
+            processInspector.terminate(pid: record.pid)
+            clearManagedProcessRecord(processID: record.pid)
+        }
         process = nil
+        processEndpoint = nil
         outputPipe?.fileHandleForReading.readabilityHandler = nil
         outputPipe = nil
         try? logFileHandle?.close()
@@ -110,6 +187,15 @@ final class VoiceboxServerController {
 
     var logFileURL: URL {
         rootURL.appendingPathComponent("logs/voicebox-server.log")
+    }
+
+    var managedProcessRecordURL: URL {
+        rootURL.appendingPathComponent("logs/voicebox-server.json")
+    }
+
+    func isManagedServerRunning(baseURLString: String) -> Bool {
+        guard let endpoint = try? endpointInfo(from: baseURLString) else { return false }
+        return managedProcessRecordIfRunning(matching: endpoint) != nil
     }
 
     private func waitUntilReady(baseURLString: String) async throws {
@@ -149,6 +235,89 @@ final class VoiceboxServerController {
             handle.write(data)
         }
         return handle
+    }
+
+    private func managedProcessRecordIfRunning(matching endpoint: (host: String, port: Int)) -> VoiceboxManagedProcessRecord? {
+        if let process,
+           process.isRunning,
+           let processEndpoint,
+           processEndpoint.host == endpoint.host,
+           processEndpoint.port == endpoint.port {
+            return VoiceboxManagedProcessRecord(
+                pid: process.processIdentifier,
+                host: endpoint.host,
+                port: endpoint.port,
+                startedAt: Date()
+            )
+        }
+
+        if let record = readManagedProcessRecord(),
+           record.matches(host: endpoint.host, port: endpoint.port) {
+            if isManagedBackendProcessRunning(record, endpoint: endpoint) {
+                return record
+            }
+            clearManagedProcessRecord(processID: record.pid)
+        }
+
+        if let record = recoverManagedProcessRecordFromLog(endpoint: endpoint),
+           isManagedBackendProcessRunning(record, endpoint: endpoint) {
+            try? writeManagedProcessRecord(record)
+            return record
+        }
+
+        return nil
+    }
+
+    private func isManagedBackendProcessRunning(
+        _ record: VoiceboxManagedProcessRecord,
+        endpoint: (host: String, port: Int)
+    ) -> Bool {
+        guard processInspector.processExists(pid: record.pid),
+              let command = processInspector.commandLine(pid: record.pid)
+        else { return false }
+
+        return command.contains("backend.main")
+            && command.contains("--host \(endpoint.host)")
+            && command.contains("--port \(endpoint.port)")
+    }
+
+    private func readManagedProcessRecord() -> VoiceboxManagedProcessRecord? {
+        guard let data = try? Data(contentsOf: managedProcessRecordURL) else { return nil }
+        return try? JSONDecoder().decode(VoiceboxManagedProcessRecord.self, from: data)
+    }
+
+    private func writeManagedProcessRecord(_ record: VoiceboxManagedProcessRecord) throws {
+        try FileManager.default.createDirectory(
+            at: managedProcessRecordURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let data = try JSONEncoder().encode(record)
+        try data.write(to: managedProcessRecordURL, options: .atomic)
+    }
+
+    private func clearManagedProcessRecord(processID: Int32?) {
+        guard let record = readManagedProcessRecord() else { return }
+        guard processID == nil || record.pid == processID else { return }
+        try? FileManager.default.removeItem(at: managedProcessRecordURL)
+    }
+
+    private func recoverManagedProcessRecordFromLog(endpoint: (host: String, port: Int)) -> VoiceboxManagedProcessRecord? {
+        guard let text = try? String(contentsOf: logFileURL, encoding: .utf8),
+              let regex = try? NSRegularExpression(pattern: #"Started server process \[(\d+)\]"#)
+        else { return nil }
+
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+        guard let match = regex.matches(in: text, range: range).last,
+              let pidRange = Range(match.range(at: 1), in: text),
+              let pid = Int32(text[pidRange])
+        else { return nil }
+
+        return VoiceboxManagedProcessRecord(
+            pid: pid,
+            host: endpoint.host,
+            port: endpoint.port,
+            startedAt: Date()
+        )
     }
 
     nonisolated private static func resolveRepositoryRoot() -> URL {
