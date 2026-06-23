@@ -56,6 +56,8 @@ struct RunConfiguration: Equatable {
         }
         if showProgress {
             args.append("--progress-bar")
+        } else {
+            args.append("--no-progress-bar")
         }
         return args
     }

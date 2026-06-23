@@ -122,3 +122,95 @@ struct ConversationAudioClipSuggestion: Identifiable, Equatable {
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
+
+struct ConversationAudioRenderJob: Identifiable, Equatable {
+    enum Action: Equatable {
+        case synthesize(profileID: String, text: String)
+        case copyExistingAudio(sourceURL: URL)
+    }
+
+    let id: String
+    let speaker: String
+    let destinationFilename: String
+    let action: Action
+}
+
+enum ConversationAudioRenderPlan {
+    static func jobs(
+        messages: [ChatMessage],
+        participantProfileIDs: [String: String],
+        fileManager: FileManager = .default
+    ) -> [ConversationAudioRenderJob] {
+        messages.compactMap { message in
+            guard let speaker = message.speaker,
+                  let profileID = participantProfileIDs[speaker],
+                  !profileID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            else { return nil }
+
+            if let attachment = message.attachment, attachment.isAudio {
+                guard fileManager.fileExists(atPath: attachment.url.path) else { return nil }
+                return ConversationAudioRenderJob(
+                    id: message.id,
+                    speaker: speaker,
+                    destinationFilename: existingAudioFilename(for: message, attachment: attachment),
+                    action: .copyExistingAudio(sourceURL: attachment.url)
+                )
+            }
+
+            let text = message.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty else { return nil }
+            return ConversationAudioRenderJob(
+                id: message.id,
+                speaker: speaker,
+                destinationFilename: message.generatedAudioFilename,
+                action: .synthesize(profileID: profileID, text: text)
+            )
+        }
+    }
+
+    static func progressText(
+        completed: Int,
+        total: Int,
+        currentFilename: String?,
+        startedAt: Date,
+        now: Date = Date()
+    ) -> String {
+        let safeTotal = max(total, 0)
+        let safeCompleted = min(max(completed, 0), safeTotal)
+        var parts = ["\(safeCompleted) / \(safeTotal)"]
+        if let currentFilename, !currentFilename.isEmpty, safeCompleted < safeTotal {
+            parts.append(currentFilename)
+        }
+        if safeCompleted > 0, safeCompleted < safeTotal {
+            let elapsed = max(now.timeIntervalSince(startedAt), 0)
+            let rate = elapsed / Double(safeCompleted)
+            let remaining = rate * Double(safeTotal - safeCompleted)
+            parts.append("ETA \(formatDuration(remaining))")
+        }
+        return parts.joined(separator: " - ")
+    }
+
+    private static func existingAudioFilename(for message: ChatMessage, attachment: ChatAttachment) -> String {
+        let generated = URL(fileURLWithPath: message.generatedAudioFilename)
+        let attachmentExtension = attachment.url.pathExtension
+        guard !attachmentExtension.isEmpty else {
+            return attachment.filename
+        }
+        return generated.deletingPathExtension().appendingPathExtension(attachmentExtension).lastPathComponent
+    }
+
+    private static func formatDuration(_ seconds: TimeInterval) -> String {
+        let rounded = max(Int(seconds.rounded()), 0)
+        if rounded < 60 {
+            return "\(rounded)s"
+        }
+        let minutes = rounded / 60
+        let remainingSeconds = rounded % 60
+        if minutes < 60 {
+            return "\(minutes)m \(remainingSeconds)s"
+        }
+        let hours = minutes / 60
+        let remainingMinutes = minutes % 60
+        return "\(hours)h \(remainingMinutes)m"
+    }
+}

@@ -166,11 +166,11 @@ final class AppState: ObservableObject {
 
     func generateConversationAudio() {
         cancelConversationGeneration(updateMessage: false)
-        let playable = chatMessages.filter { message in
-            guard let speaker = message.speaker else { return false }
-            return !(participantProfileIDs[speaker] ?? "").isEmpty && !message.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        }
-        guard !playable.isEmpty else {
+        let jobs = ConversationAudioRenderPlan.jobs(
+            messages: chatMessages,
+            participantProfileIDs: participantProfileIDs
+        )
+        guard !jobs.isEmpty else {
             chatMessage = "Assign at least one speaker to a Voicebox profile."
             return
         }
@@ -184,35 +184,64 @@ final class AppState: ObservableObject {
         guard let outputFolder = panel.url else { return }
 
         isConversationGenerating = true
-        conversationProgress = "0 / \(playable.count)"
+        let startedAt = Date()
+        conversationProgress = ConversationAudioRenderPlan.progressText(
+            completed: 0,
+            total: jobs.count,
+            currentFilename: jobs.first?.destinationFilename,
+            startedAt: startedAt
+        )
         activeConversationGenerationIDs = []
         conversationTask = Task {
             do {
+                if jobs.contains(where: { job in
+                    if case .synthesize = job.action { return true }
+                    return false
+                }) {
+                    await self.startVoiceboxServerIfNeeded()
+                }
                 let api = try VoiceboxAPI(baseURLString: self.configuration.voiceboxURL)
-                for (index, message) in playable.enumerated() {
+                for (index, job) in jobs.enumerated() {
                     try Task.checkCancellation()
-                    guard let speaker = message.speaker, let profileID = self.participantProfileIDs[speaker] else { continue }
-                    let destination = outputFolder.appendingPathComponent(message.generatedAudioFilename)
-                    _ = try await api.generateSpeech(
-                        profileID: profileID,
-                        text: message.text,
-                        language: self.configuration.language,
-                        destination: destination,
-                        onGenerationID: { generationID in
-                            await MainActor.run {
-                                _ = self.activeConversationGenerationIDs.insert(generationID)
+                    let destination = outputFolder.appendingPathComponent(job.destinationFilename)
+                    await MainActor.run {
+                        self.conversationProgress = ConversationAudioRenderPlan.progressText(
+                            completed: index,
+                            total: jobs.count,
+                            currentFilename: job.destinationFilename,
+                            startedAt: startedAt
+                        )
+                    }
+                    switch job.action {
+                    case .copyExistingAudio(let sourceURL):
+                        try FileManager.default.copyItemReplacingExisting(at: sourceURL, to: destination)
+                    case .synthesize(let profileID, let text):
+                        _ = try await api.generateSpeech(
+                            profileID: profileID,
+                            text: text,
+                            language: self.configuration.language,
+                            destination: destination,
+                            onGenerationID: { generationID in
+                                await MainActor.run {
+                                    _ = self.activeConversationGenerationIDs.insert(generationID)
+                                }
                             }
-                        }
-                    )
+                        )
+                    }
                     await MainActor.run {
                         guard !Task.isCancelled else { return }
                         self.activeConversationGenerationIDs.removeAll()
-                        self.conversationProgress = "\(index + 1) / \(playable.count)"
+                        self.conversationProgress = ConversationAudioRenderPlan.progressText(
+                            completed: index + 1,
+                            total: jobs.count,
+                            currentFilename: jobs.dropFirst(index + 1).first?.destinationFilename,
+                            startedAt: startedAt
+                        )
                     }
                 }
                 try Task.checkCancellation()
                 await MainActor.run {
-                    self.chatMessage = "Generated \(playable.count) audio clips"
+                    self.chatMessage = "Rendered \(jobs.count) audio clips"
                     self.isConversationGenerating = false
                     self.conversationProgress = ""
                     self.conversationTask = nil
@@ -262,11 +291,28 @@ final class AppState: ObservableObject {
     }
 
     private func cancelVoiceboxGenerations(_ generationIDs: [String]) async {
-        guard !generationIDs.isEmpty,
-              let api = try? VoiceboxAPI(baseURLString: await MainActor.run(body: { self.configuration.voiceboxURL }))
-        else { return }
-        for generationID in generationIDs {
-            try? await api.cancelGeneration(generationID)
+        guard !generationIDs.isEmpty else { return }
+        do {
+            let api = try VoiceboxAPI(baseURLString: await MainActor.run(body: { self.configuration.voiceboxURL }))
+            var failedIDs: [String] = []
+            for generationID in generationIDs {
+                do {
+                    try await api.cancelGeneration(generationID)
+                } catch {
+                    failedIDs.append(generationID)
+                }
+            }
+            if !failedIDs.isEmpty {
+                await MainActor.run {
+                    self.append("Failed to cancel Voicebox generations: \(failedIDs.joined(separator: ", "))\n")
+                    self.voiceboxMessage = "Failed to cancel \(failedIDs.count) Voicebox generation(s)."
+                }
+            }
+        } catch {
+            await MainActor.run {
+                self.append("Failed to cancel Voicebox generations: \(error.localizedDescription)\n")
+                self.voiceboxMessage = error.localizedDescription
+            }
         }
     }
 
@@ -645,5 +691,15 @@ final class AppState: ObservableObject {
             await MainActor.run { self.voiceboxMessage = error.localizedDescription }
         }
         await MainActor.run { self.isVoiceboxBusy = false }
+    }
+}
+
+private extension FileManager {
+    func copyItemReplacingExisting(at sourceURL: URL, to destinationURL: URL) throws {
+        try createDirectory(at: destinationURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        if fileExists(atPath: destinationURL.path) {
+            try removeItem(at: destinationURL)
+        }
+        try copyItem(at: sourceURL, to: destinationURL)
     }
 }

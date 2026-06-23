@@ -7,6 +7,8 @@ enum VoiceboxAPIError: LocalizedError {
     case missingGenerationID
     case generationFailed(String)
     case generationTimedOut
+    case emptyAudioResponse
+    case invalidAudioResponse(String)
 
     var errorDescription: String? {
         switch self {
@@ -22,6 +24,10 @@ enum VoiceboxAPIError: LocalizedError {
             "Voicebox generation failed: \(detail)"
         case .generationTimedOut:
             "Voicebox generation timed out."
+        case .emptyAudioResponse:
+            "Voicebox returned an empty audio response."
+        case .invalidAudioResponse(let contentType):
+            "Voicebox returned non-audio content from /audio: \(contentType)"
         }
     }
 }
@@ -29,10 +35,17 @@ enum VoiceboxAPIError: LocalizedError {
 final class VoiceboxAPI {
     private let baseURL: URL
     private let session: URLSession
+    private let generationPollInterval: TimeInterval
+    private let maxGenerationWaitSeconds: TimeInterval
     private let decoder = JSONDecoder()
     private let encoder = JSONEncoder()
 
-    init(baseURLString: String, session: URLSession = .shared) throws {
+    init(
+        baseURLString: String,
+        session: URLSession = .shared,
+        generationPollInterval: TimeInterval = 1,
+        maxGenerationWaitSeconds: TimeInterval = 600
+    ) throws {
         guard let url = URL(string: baseURLString.trimmingCharacters(in: .whitespacesAndNewlines)),
               let scheme = url.scheme?.lowercased(),
               ["http", "https"].contains(scheme),
@@ -42,6 +55,8 @@ final class VoiceboxAPI {
         }
         self.baseURL = url
         self.session = session
+        self.generationPollInterval = generationPollInterval
+        self.maxGenerationWaitSeconds = maxGenerationWaitSeconds
     }
 
     func health() async throws {
@@ -102,7 +117,7 @@ final class VoiceboxAPI {
         if (response.status ?? "").lowercased() != "completed" {
             try await waitForGeneration(response.id)
         }
-        let audio = try await rawRequest("GET", path: "/audio/\(response.id)")
+        let audio = try await rawAudioRequest("GET", path: "/audio/\(response.id)")
         try audio.write(to: destination, options: .atomic)
         return destination
     }
@@ -122,15 +137,22 @@ final class VoiceboxAPI {
     }
 
     private func waitForGeneration(_ generationID: String) async throws {
-        let status = try await generationStatus(generationID)
-        switch status.status.lowercased() {
-        case "completed":
-            return
-        case "failed", "cancelled", "canceled", "error", "not_found":
-            throw VoiceboxAPIError.generationFailed(status.error ?? status.status)
-        default:
-            throw VoiceboxAPIError.generationTimedOut
+        let deadline = Date().addingTimeInterval(maxGenerationWaitSeconds)
+        while Date() < deadline {
+            let status = try await generationStatus(generationID)
+            switch status.status.lowercased() {
+            case "completed":
+                return
+            case "failed", "cancelled", "canceled", "error", "not_found":
+                throw VoiceboxAPIError.generationFailed(status.error ?? status.status)
+            default:
+                if Date() >= deadline {
+                    break
+                }
+                try await sleepBeforeNextGenerationPoll()
+            }
         }
+        throw VoiceboxAPIError.generationTimedOut
     }
 
     private func generationStatus(_ generationID: String) async throws -> GenerationStatus {
@@ -145,6 +167,7 @@ final class VoiceboxAPI {
             throw VoiceboxAPIError.http(http.statusCode, "")
         }
 
+        var latestStatus: GenerationStatus?
         for try await line in bytes.lines {
             let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
             guard trimmed.hasPrefix("data:") else { continue }
@@ -154,11 +177,21 @@ final class VoiceboxAPI {
             else {
                 throw VoiceboxAPIError.invalidResponse
             }
+            latestStatus = status
             if ["completed", "failed", "cancelled", "canceled", "error", "not_found"].contains(status.status.lowercased()) {
                 return status
             }
         }
+        if let latestStatus {
+            return latestStatus
+        }
         throw VoiceboxAPIError.invalidResponse
+    }
+
+    private func sleepBeforeNextGenerationPoll() async throws {
+        guard generationPollInterval > 0 else { return }
+        let nanoseconds = UInt64(generationPollInterval * 1_000_000_000)
+        try await Task.sleep(nanoseconds: nanoseconds)
     }
 
     private func jsonRequest<Response: Decodable, Body: Encodable>(_ method: String, path: String, jsonBody: Body? = Optional<Data>.none) async throws -> Response {
@@ -190,11 +223,30 @@ final class VoiceboxAPI {
         return try await perform(request)
     }
 
+    private func rawAudioRequest(_ method: String, path: String) async throws -> Data {
+        var request = URLRequest(url: endpointURL(path: path))
+        request.httpMethod = method
+        let (data, response) = try await performWithResponse(request)
+        guard !data.isEmpty else {
+            throw VoiceboxAPIError.emptyAudioResponse
+        }
+        let contentType = response.value(forHTTPHeaderField: "Content-Type")?.lowercased() ?? ""
+        guard contentType.isEmpty || contentType.hasPrefix("audio/") else {
+            throw VoiceboxAPIError.invalidAudioResponse(contentType)
+        }
+        return data
+    }
+
     private func endpointURL(path: String) -> URL {
         baseURL.appendingPathComponent(path.trimmingCharacters(in: CharacterSet(charactersIn: "/")))
     }
 
     private func perform(_ request: URLRequest) async throws -> Data {
+        let (data, _) = try await performWithResponse(request)
+        return data
+    }
+
+    private func performWithResponse(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else {
             throw VoiceboxAPIError.invalidResponse
@@ -202,7 +254,7 @@ final class VoiceboxAPI {
         guard 200..<300 ~= http.statusCode else {
             throw VoiceboxAPIError.http(http.statusCode, String(decoding: data, as: UTF8.self))
         }
-        return data
+        return (data, http)
     }
 }
 
