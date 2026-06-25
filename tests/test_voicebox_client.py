@@ -37,6 +37,41 @@ class StreamingFakeResponse(FakeResponse):
         raise AssertionError("streaming status should be read incrementally")
 
 
+class OpenStreamingFakeResponse(FakeResponse):
+    def __init__(self, payload: bytes):
+        super().__init__(200, b"", {"Content-Type": "text/event-stream"})
+        self._lines = iter(payload.splitlines(keepends=True))
+
+    def readline(self) -> bytes:
+        try:
+            return next(self._lines)
+        except StopIteration:
+            raise AssertionError("client should not wait for streaming status EOF") from None
+
+    def read(self) -> bytes:
+        raise AssertionError("streaming status should be read incrementally")
+
+
+def test_default_opener_passes_timeout_as_keyword(monkeypatch):
+    captured = {}
+
+    def fake_urlopen(request, data=None, timeout=None):
+        captured["url"] = request.full_url
+        captured["data"] = data
+        captured["timeout"] = timeout
+        return FakeResponse(200, {"status": "healthy"})
+
+    monkeypatch.setattr("voicebox_client.urllib.request.urlopen", fake_urlopen)
+    client = VoiceboxClient(base_url="http://127.0.0.1:17493", timeout=7)
+
+    assert client.health() == {"status": "healthy"}
+    assert captured == {
+        "url": "http://127.0.0.1:17493/health",
+        "data": None,
+        "timeout": 7,
+    }
+
+
 def test_transcribe_audio_posts_multipart_file_and_model(tmp_path):
     audio_file = tmp_path / "clip.ogg"
     audio_file.write_bytes(b"audio-bytes")
@@ -245,19 +280,20 @@ def test_generate_speech_waits_for_queued_generation_before_audio_fetch(tmp_path
     assert output_file.read_bytes() == b"wav-bytes"
 
 
-def test_generate_speech_consumes_streaming_status_until_terminal_event(tmp_path, monkeypatch):
+def test_generate_speech_polls_again_when_status_stream_stays_open(tmp_path, monkeypatch):
     output_file = tmp_path / "speech.wav"
     captured = []
+    status_calls = 0
 
     def opener(request, timeout):
+        nonlocal status_calls
         captured.append(request.full_url)
         if request.full_url.endswith("/generate"):
             return FakeResponse(200, {"id": "gen-123", "status": "generating"})
         if request.full_url.endswith("/generate/gen-123/status"):
-            return StreamingFakeResponse(
-                b'data: {"id":"gen-123","status":"generating"}\n\n'
-                b'data: {"id":"gen-123","status":"completed"}\n\n'
-            )
+            status_calls += 1
+            status = "generating" if status_calls == 1 else "completed"
+            return OpenStreamingFakeResponse(f'data: {{"id":"gen-123","status":"{status}"}}\n'.encode())
         if request.full_url.endswith("/audio/gen-123"):
             return FakeResponse(200, b"wav-bytes", {"Content-Type": "audio/wav"})
         raise AssertionError(request.full_url)
@@ -273,8 +309,10 @@ def test_generate_speech_consumes_streaming_status_until_terminal_event(tmp_path
     )
 
     assert written == output_file
+    assert status_calls == 2
     assert captured == [
         "http://127.0.0.1:17493/generate",
+        "http://127.0.0.1:17493/generate/gen-123/status",
         "http://127.0.0.1:17493/generate/gen-123/status",
         "http://127.0.0.1:17493/audio/gen-123",
     ]

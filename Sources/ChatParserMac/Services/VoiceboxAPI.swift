@@ -167,7 +167,15 @@ final class VoiceboxAPI: @unchecked Sendable {
             throw VoiceboxAPIError.http(http.statusCode, "")
         }
 
-        var latestStatus: GenerationStatus?
+        let contentType = http.value(forHTTPHeaderField: "Content-Type")?.lowercased() ?? ""
+        guard contentType.contains("text/event-stream") else {
+            var data = Data()
+            for try await byte in bytes {
+                data.append(contentsOf: [byte])
+            }
+            return try decoder.decode(GenerationStatus.self, from: data)
+        }
+
         for try await line in bytes.lines {
             let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
             guard trimmed.hasPrefix("data:") else { continue }
@@ -177,13 +185,7 @@ final class VoiceboxAPI: @unchecked Sendable {
             else {
                 throw VoiceboxAPIError.invalidResponse
             }
-            latestStatus = status
-            if ["completed", "failed", "cancelled", "canceled", "error", "not_found"].contains(status.status.lowercased()) {
-                return status
-            }
-        }
-        if let latestStatus {
-            return latestStatus
+            return status
         }
         throw VoiceboxAPIError.invalidResponse
     }

@@ -33,7 +33,11 @@ class VoiceboxClient:
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
-        self._opener = opener or urllib.request.urlopen
+        self._opener = opener or self._urlopen_with_timeout
+
+    @staticmethod
+    def _urlopen_with_timeout(request: urllib.request.Request, timeout: int) -> Any:
+        return urllib.request.urlopen(request, timeout=timeout)
 
     def health(self) -> dict[str, Any]:
         return self._json_request("GET", "/health")
@@ -253,8 +257,6 @@ class VoiceboxClient:
         return latest
 
     def _decode_generation_status_event(self, response: Any) -> dict[str, Any]:
-        latest: dict[str, Any] | None = None
-        terminal_statuses = {"completed", "failed", "cancelled", "canceled", "error", "not_found"}
         with response:
             while True:
                 line = response.readline()
@@ -271,11 +273,7 @@ class VoiceboxClient:
                 except json.JSONDecodeError as exc:
                     raise VoiceboxError("Voicebox returned malformed generation status SSE") from exc
                 if isinstance(decoded, dict):
-                    latest = decoded
-                    if str(decoded.get("status", "")).lower() in terminal_statuses:
-                        return decoded
-        if latest is not None:
-            return latest
+                    return decoded
         raise VoiceboxError("Voicebox returned an empty generation status SSE")
 
     def _content_type(self, response: Any) -> str:

@@ -61,6 +61,60 @@ struct VoiceboxAPITests {
         #expect(statusRequests.value == 2)
     }
 
+    @Test func generateSpeechAcceptsJSONStatusResponse() async throws {
+        let outputURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("wav")
+        defer { try? FileManager.default.removeItem(at: outputURL) }
+
+        let session = URLSession(configuration: Self.urlSessionConfiguration { request in
+            let path = request.url?.path ?? ""
+            switch (request.httpMethod, path) {
+            case ("POST", "/generate"):
+                return try Self.jsonResponse(
+                    path: path,
+                    body: [
+                        "id": "gen-json",
+                        "profile_id": "profile-123",
+                        "text": "hello",
+                        "language": "en",
+                        "status": "generating",
+                        "audio_path": ""
+                    ]
+                )
+            case ("GET", "/generate/gen-json/status"):
+                return try Self.jsonResponse(
+                    path: path,
+                    body: [
+                        "id": "gen-json",
+                        "status": "completed"
+                    ]
+                )
+            case ("GET", "/audio/gen-json"):
+                return Self.response(path: path, contentType: "audio/wav", body: Data("wav-bytes".utf8))
+            default:
+                throw TestHTTPError.unexpectedRequest("\(request.httpMethod ?? "") \(path)")
+            }
+        })
+
+        let api = try VoiceboxAPI(
+            baseURLString: "http://127.0.0.1:17493",
+            session: session,
+            generationPollInterval: 0,
+            maxGenerationWaitSeconds: 1
+        )
+
+        let written = try await api.generateSpeech(
+            profileID: "profile-123",
+            text: "hello",
+            language: "en",
+            destination: outputURL
+        )
+
+        #expect(written == outputURL)
+        #expect(try Data(contentsOf: outputURL) == Data("wav-bytes".utf8))
+    }
+
     @Test func generateSpeechSurfacesTerminalFailureFromStatusStream() async throws {
         let outputURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
