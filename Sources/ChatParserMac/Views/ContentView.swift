@@ -145,13 +145,13 @@ private struct ConversationView: View {
                     } label: {
                         Label("Speak Selection", systemImage: "waveform")
                     }
-                    .disabled(state.selectedChatMessage == nil)
+                    .disabled(!state.canGenerateSelectedChatMessageAudio)
                     Button {
                         state.generateConversationAudio()
                     } label: {
                         Label("Render Conversation", systemImage: "play.circle")
                     }
-                    .disabled(state.chatMessages.isEmpty || state.isConversationGenerating)
+                    .disabled(!state.canGenerateConversationAudio)
                 }
             }
             .padding()
@@ -802,7 +802,7 @@ private struct TextToVoiceView: View {
                 } label: {
                     Label("Generate Audio", systemImage: "waveform")
                 }
-                .disabled(state.selectedProfileID == nil || state.generationText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .disabled(!state.canGenerateSelectedTextAudio)
             }
 
             TextEditor(text: $state.generationText)
