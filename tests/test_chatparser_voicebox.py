@@ -5,13 +5,14 @@ import chatparser
 
 
 class FakeVoiceboxClient:
-    def __init__(self):
+    def __init__(self, transcription_language="en"):
         self.transcribed = []
         self.generated = []
+        self.transcription_language = transcription_language
 
-    def transcribe_audio(self, audio_path, model):
-        self.transcribed.append((str(audio_path), model))
-        return SimpleNamespace(text="voicebox transcript", language="en")
+    def transcribe_audio(self, audio_path, model, language=None):
+        self.transcribed.append((str(audio_path), model, language))
+        return SimpleNamespace(text="voicebox transcript", language=self.transcription_language)
 
     def generate_speech(self, text, output_path, profile_id=None, language="en"):
         self.generated.append(
@@ -52,6 +53,7 @@ def test_transcribe_audio_line_appends_voicebox_transcript(tmp_path, monkeypatch
     fake_client = FakeVoiceboxClient()
     monkeypatch.setattr(chatparser, "__VOICEBOX_CLIENT", fake_client)
     monkeypatch.setattr(chatparser, "__VOICEBOX_MODEL", "whisper-turbo")
+    monkeypatch.setattr(chatparser, "__VOICEBOX_LANGUAGE", "en")
     monkeypatch.setattr(chatparser, "__VERBOSE", False)
 
     transcription = chatparser.transcribe_audio_line(
@@ -65,11 +67,37 @@ def test_transcribe_audio_line_appends_voicebox_transcript(tmp_path, monkeypatch
         7,
     )
 
-    assert fake_client.transcribed == [(str(audio), "turbo")]
+    assert fake_client.transcribed == [(str(audio), "turbo", "en")]
     assert transcription == file_out[0]
     assert "[01/01/2024, 12:00:00] Alice: [Transcribed]: voicebox transcript" in transcription
     assert "(en)" in transcription
     assert f"[File: {audio.name}]" in transcription
+
+
+def test_transcribe_audio_line_uses_configured_language_when_voicebox_omits_it(tmp_path, monkeypatch):
+    audio = tmp_path / "00000001-AUDIO-2024-01-01-00-00-00.ogg"
+    audio.write_bytes(b"audio")
+    attachment = chatparser.WhatsAppAttachment(filename=audio.name, is_audio=True)
+    file_out = []
+    fake_client = FakeVoiceboxClient(transcription_language=None)
+    monkeypatch.setattr(chatparser, "__VOICEBOX_CLIENT", fake_client)
+    monkeypatch.setattr(chatparser, "__VOICEBOX_MODEL", "turbo")
+    monkeypatch.setattr(chatparser, "__VOICEBOX_LANGUAGE", "fr")
+    monkeypatch.setattr(chatparser, "__VERBOSE", False)
+
+    transcription = chatparser.transcribe_audio_line(
+        str(tmp_path),
+        attachment,
+        "unused-model-dir",
+        "unused prompt",
+        "01/01/2024, 12:00:00",
+        "Alice",
+        file_out,
+        7,
+    )
+
+    assert fake_client.transcribed == [(str(audio), "turbo", "fr")]
+    assert "(fr)" in transcription
 
 
 def test_format_parsed_whatsapp_line_preserves_plain_message():

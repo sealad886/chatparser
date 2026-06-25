@@ -41,6 +41,13 @@ protocol VoiceboxProcessInspecting: Sendable {
     func terminate(pid: Int32)
 }
 
+@MainActor
+protocol VoiceboxServerControlling: AnyObject {
+    func start(baseURLString: String, onOutput: @escaping @Sendable (String) -> Void) async throws
+    func stop(baseURLString: String?)
+    func isManagedServerRunning(baseURLString: String) -> Bool
+}
+
 struct SystemVoiceboxProcessInspector: VoiceboxProcessInspecting {
     func processExists(pid: Int32) -> Bool {
         kill(pid, 0) == 0 || errno == EPERM
@@ -70,7 +77,7 @@ struct SystemVoiceboxProcessInspector: VoiceboxProcessInspecting {
 }
 
 @MainActor
-final class VoiceboxServerController {
+final class VoiceboxServerController: VoiceboxServerControlling {
     private let rootURL: URL
     private let processInspector: any VoiceboxProcessInspecting
     private var process: Process?

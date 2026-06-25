@@ -52,6 +52,7 @@ class ParsedWhatsAppLine:
 class WhatsAppAttachment:
     filename: str
     is_audio: bool
+    caption: str = ""
 
 __MODEL_NAME = None
 __VERBOSE = None
@@ -249,19 +250,58 @@ def find_whatsapp_attachment(message: str) -> WhatsAppAttachment | None:
     ios_match = re.search(r"<attached:\s*(?P<filename>.+?)>", message)
     if ios_match:
         filename = ios_match.group("filename").strip()
-        return WhatsAppAttachment(filename=filename, is_audio=_is_audio_attachment(filename))
+        caption = _caption_without_attachment_marker(message, ios_match.span())
+        return WhatsAppAttachment(filename=filename, is_audio=_is_audio_attachment(filename), caption=caption)
 
-    android_match = re.search(r"(?P<filename>\S+\.[A-Za-z0-9]+)\s+\(file attached\)", message, re.IGNORECASE)
+    android_match = re.search(
+        (
+            r"(?P<filename>"
+            r"(?:WhatsApp\s+)?(?:Audio|Video)[^\r\n]*?\.[A-Za-z0-9]+"
+            r"|Voice Note[^\r\n]*?\.[A-Za-z0-9]+"
+            r"|(?:AUD|PTT|VID|IMG)-\S+\.[A-Za-z0-9]+"
+            r"|\S+\.[A-Za-z0-9]+"
+            r")\s+\(file attached\)"
+        ),
+        message,
+        re.IGNORECASE,
+    )
     if android_match:
         filename = android_match.group("filename").strip()
-        return WhatsAppAttachment(filename=filename, is_audio=_is_audio_attachment(filename))
+        caption = _caption_without_attachment_marker(message, android_match.span())
+        return WhatsAppAttachment(filename=filename, is_audio=_is_audio_attachment(filename), caption=caption)
     return None
+
+
+def _caption_without_attachment_marker(message: str, span: tuple[int, int]) -> str:
+    before = message[: span[0]].strip()
+    after = message[span[1] :].strip()
+    return " ".join(part for part in (before, after) if part)
 
 
 def _is_audio_attachment(filename: str) -> bool:
     upper = filename.upper()
     suffix = Path(filename).suffix.lower()
-    return "AUDIO" in upper or upper.startswith(("AUD-", "PTT-")) or suffix in {".opus", ".ogg", ".m4a", ".mp3", ".wav", ".aac", ".flac", ".webm"}
+    return (
+        "AUDIO" in upper
+        or "VIDEO" in upper
+        or upper.startswith(("AUD-", "PTT-", "VID-"))
+        or suffix
+        in {
+            ".opus",
+            ".ogg",
+            ".m4a",
+            ".mp3",
+            ".wav",
+            ".aac",
+            ".flac",
+            ".webm",
+            ".mp4",
+            ".mov",
+            ".m4v",
+            ".3gp",
+            ".3gpp",
+        }
+    )
 
 
 def is_whatsapp_chat_file(filename: str) -> bool:
@@ -399,6 +439,24 @@ def process_chat_file_by_type(chat_file: str, audio_folder: str, model_prompt: s
             line = line.replace("\u200e","")
             parsed = parse_whatsapp_line(line)
             if parsed is None:
+                continuation_attachment = find_whatsapp_attachment(line)
+                if (
+                    continuation_attachment
+                    and continuation_attachment.is_audio
+                    and to_type == "text"
+                    and prev_date_time_str is not None
+                ):
+                    transcribe_audio_line_safely(
+                        audio_folder,
+                        continuation_attachment,
+                        model_dir,
+                        model_prompt,
+                        prev_date_time_str,
+                        prev_spkr,
+                        file_out,
+                        chat_num,
+                    )
+                    continue
                 if to_type == "audio":
                     if prev_spr_lines:
                         prev_spr_lines.append(line.strip())
@@ -423,7 +481,16 @@ def process_chat_file_by_type(chat_file: str, audio_folder: str, model_prompt: s
                 #re.search(r"\[(.*?)\]", line).group(1)
                 #spkrname = re.search(r'^\[(\w+)\W', line).group(1)
                 if attachment.is_audio and to_type == "text":
-                    transcribe_audio_line(audio_folder, attachment, model_dir, model_prompt, date_time_str, spkrname, file_out, chat_num)
+                    transcribe_audio_line_safely(
+                        audio_folder,
+                        attachment,
+                        model_dir,
+                        model_prompt,
+                        date_time_str,
+                        spkrname,
+                        file_out,
+                        chat_num,
+                    )
                 elif attachment.is_audio and to_type == "audio":
                     move_audio_file(attachment, audio_folder, chat_num)
                 else:
@@ -469,6 +536,7 @@ def process_chat_file_by_type(chat_file: str, audio_folder: str, model_prompt: s
             prev_datetime = cur_datetime
             if to_type != "audio":
                 prev_date_time_str = date_time_str
+                prev_spkr = spkrname
             if __ENABLE_TIMINGS: tt([f'{i}_loop_end',now()])
             chat_num+=1
         if to_type == "audio" and prev_spr_lines and prev_date_time_str is not None:
@@ -589,6 +657,16 @@ def line_to_audio(line, spkrname, date_time_str, audio_folder, ctr: int, spkr_pr
     '''
     return audio_out_file
 
+def transcribe_audio_line_safely(audio_folder, match, model_dir, model_prompt, date_time_str, spkrname, file_out, i):
+    try:
+        return transcribe_audio_line(audio_folder, match, model_dir, model_prompt, date_time_str, spkrname, file_out, i)
+    except Exception as exc:
+        failure = format_transcription_failure_line(audio_folder, match, date_time_str, spkrname, exc)
+        file_out.append(failure)
+        print(f"Transcription failed (line {i}):\n{failure}") if __VERBOSE else None
+        return failure
+
+
 def transcribe_audio_line(audio_folder, match, model_dir, model_prompt, date_time_str, spkrname, file_out, i):
     # Extract the audio file name from the line
     filename = match.filename if isinstance(match, WhatsAppAttachment) else match.group(0)[10:-1].strip()
@@ -596,23 +674,41 @@ def transcribe_audio_line(audio_folder, match, model_dir, model_prompt, date_tim
 
     global __VOICEBOX_CLIENT
     global __VOICEBOX_MODEL
+    global __VOICEBOX_LANGUAGE
     if __VOICEBOX_CLIENT is None:
         __VOICEBOX_CLIENT = VoiceboxClient(base_url=__VOICEBOX_URL or "http://127.0.0.1:17493")
 
+    language_hint = (__VOICEBOX_LANGUAGE or "").strip() or None
     result = __VOICEBOX_CLIENT.transcribe_audio(
         audio_file,
         model=normalize_voicebox_transcription_model(__VOICEBOX_MODEL or model_dir),
+        language=language_hint,
     )
-    language = result.language or "unk"
+    language = result.language or language_hint or "unk"
+
+    caption = match.caption if isinstance(match, WhatsAppAttachment) else ""
+    caption_prefix = f"{caption} " if caption else ""
 
     # build the transcription line now
-    transcription = f"[{date_time_str}] {spkrname}: [Transcribed]: {result.text} ({language}) [File: {os.path.basename(audio_file)}]\n"
+    transcription = f"[{date_time_str}] {spkrname}: {caption_prefix}[Transcribed]: {result.text} ({language}) [File: {os.path.basename(audio_file)}]\n"
 
     # Print the result to stdout
     print(f"Transcription (line {i}):\n{transcription}") if __VERBOSE else None
 
     file_out.append(transcription)
     return transcription
+
+
+def format_transcription_failure_line(audio_folder, match, date_time_str, spkrname, error) -> str:
+    filename = match.filename if isinstance(match, WhatsAppAttachment) else match.group(0)[10:-1].strip()
+    audio_file = os.path.join(audio_folder, filename)
+    caption = match.caption if isinstance(match, WhatsAppAttachment) else ""
+    caption_prefix = f"{caption} " if caption else ""
+    detail = str(error).replace("\n", " ").strip() or error.__class__.__name__
+    return (
+        f"[{date_time_str}] {spkrname}: {caption_prefix}[Transcription failed]: "
+        f"{detail} [File: {os.path.basename(audio_file)}]\n"
+    )
 
 
 def cleanup_end(processed_file: str, file_out: list) -> None:
@@ -722,7 +818,7 @@ if __name__ == "__main__":
         "--voicebox-language",
         type=str,
         default=os.environ.get("VOICEBOX_LANGUAGE", "en"),
-        help="Language code to send to Voicebox for generated speech.")
+        help="Language code to send to Voicebox for transcription hints and generated speech.")
     parser.add_argument(
         "-i", 
         "--input-directory", 
@@ -740,7 +836,7 @@ if __name__ == "__main__":
         "--prompt-file", 
         type=str, 
         default="chatparser.model_prompt.txt",
-        help="List a text file which contains context for transcription. The default file and location is ./chatparser.model_prompt.txt. If you set this to a file that returns an empty string, chatparser will still attempt to give Voicebox some context by extracting your locale. If locale can not be determined, a default of enUS is used. Text is: 'The locale of the user owning this audio file is {locale} so assume a higher likelihood that speech is in the language and accent common to that locale.'")
+        help="Legacy prompt file path. Voicebox transcription uses --voicebox-language as the supported ASR hint; this file is not sent to the Voicebox /transcribe endpoint.")
     parser.add_argument(
         "-P", 
         "--progress-bar",

@@ -32,7 +32,8 @@ curl http://127.0.0.1:17493/profiles
 
 curl -X POST http://127.0.0.1:17493/transcribe \
   -F "file=@recording.wav" \
-  -F "model=turbo"
+  -F "model=turbo" \
+  -F "language=en"
 
 curl -X POST http://127.0.0.1:17493/generate \
   -H "Content-Type: application/json" \

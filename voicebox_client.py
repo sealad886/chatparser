@@ -82,11 +82,14 @@ class VoiceboxClient:
         self,
         audio_path: str | Path,
         model: str = "turbo",
+        language: str | None = None,
         poll_interval: float = 2.0,
         max_download_wait_seconds: int = 600,
     ) -> TranscriptionResult:
         path = Path(audio_path)
         fields = {"model": model}
+        if language:
+            fields["language"] = language
         files = {"file": path}
         headers, body = self._multipart_body(fields, files)
         deadline = time.monotonic() + max_download_wait_seconds

@@ -42,12 +42,13 @@ struct WhatsAppExportParser: Sendable {
                 sequence += 1
             } else if let existing = current {
                 let text = existing.text.isEmpty ? line : existing.text + "\n" + line
+                let continuationAttachment = existing.attachment ?? attachment(in: line, mediaRoot: mediaRoot)
                 current = ChatMessage(
                     id: existing.id,
                     timestamp: existing.timestamp,
                     speaker: existing.speaker,
                     text: text,
-                    attachment: existing.attachment,
+                    attachment: continuationAttachment,
                     sourceFormat: existing.sourceFormat,
                     sequenceNumber: existing.sequenceNumber
                 )
@@ -158,7 +159,11 @@ struct WhatsAppExportParser: Sendable {
         if let match = match(text, pattern: #"<attached:\s*(.+?)>"#) {
             return makeAttachment(filename: match[1], mediaRoot: mediaRoot)
         }
-        if let match = match(text, pattern: #"(\S+\.[A-Za-z0-9]+)\s+\(file attached\)"#, options: [.caseInsensitive]) {
+        if let match = match(
+            text,
+            pattern: #"((?:WhatsApp\s+)?(?:Audio|Video)[^\r\n]*?\.[A-Za-z0-9]+|Voice Note[^\r\n]*?\.[A-Za-z0-9]+|(?:AUD|PTT|VID|IMG)-\S+\.[A-Za-z0-9]+|\S+\.[A-Za-z0-9]+)\s+\(file attached\)"#,
+            options: [.caseInsensitive]
+        ) {
             return makeAttachment(filename: match[1], mediaRoot: mediaRoot)
         }
         return nil

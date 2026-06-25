@@ -64,6 +64,24 @@ def test_transcribe_audio_posts_multipart_file_and_model(tmp_path):
     assert b"audio-bytes" in captured["body"]
 
 
+def test_transcribe_audio_posts_optional_language_hint(tmp_path):
+    audio_file = tmp_path / "clip.ogg"
+    audio_file.write_bytes(b"audio-bytes")
+    captured = {}
+
+    def opener(request, timeout):
+        captured["body"] = request.data
+        return FakeResponse(200, {"text": "bonjour", "language": "fr"})
+
+    client = VoiceboxClient(base_url="http://127.0.0.1:17493", opener=opener)
+
+    result = client.transcribe_audio(audio_file, model="turbo", language="fr")
+
+    assert result.text == "bonjour"
+    assert b'name="language"' in captured["body"]
+    assert b"fr" in captured["body"]
+
+
 def test_transcribe_audio_retries_accepted_model_download(tmp_path, monkeypatch):
     audio_file = tmp_path / "clip.ogg"
     audio_file.write_bytes(b"audio-bytes")

@@ -2,6 +2,21 @@ import AppKit
 import Foundation
 import UniformTypeIdentifiers
 
+protocol VoiceboxHealthChecking {
+    func isReachable(baseURLString: String) async -> Bool
+}
+
+struct VoiceboxAPIHealthChecker: VoiceboxHealthChecking {
+    func isReachable(baseURLString: String) async -> Bool {
+        do {
+            try await VoiceboxAPI(baseURLString: baseURLString).health()
+            return true
+        } catch {
+            return false
+        }
+    }
+}
+
 @MainActor
 final class AppState: ObservableObject {
     @Published var configuration = RunConfiguration()
@@ -34,17 +49,38 @@ final class AppState: ObservableObject {
     @Published var isConversationGenerating = false
     @Published var conversationProgress = ""
 
-    private let runner = ChatParserRunner()
+    private let runner: any ChatParserRunning
     private let parser = WhatsAppExportParser()
-    private let voiceboxServer = VoiceboxServerController()
+    private let voiceboxServer: any VoiceboxServerControlling
+    private let voiceboxHealthChecker: any VoiceboxHealthChecking
     private let defaultGeneratedAudioName = "voicebox-selection.wav"
+    private var runTask: Task<Void, Never>?
     private var chatLoadTask: Task<Void, Never>?
     private var conversationTask: Task<Void, Never>?
     private var activeConversationGenerationIDs = Set<String>()
 
+    init() {
+        self.runner = ChatParserRunner()
+        self.voiceboxServer = VoiceboxServerController()
+        self.voiceboxHealthChecker = VoiceboxAPIHealthChecker()
+    }
+
+    init(
+        runner: any ChatParserRunning,
+        voiceboxServer: any VoiceboxServerControlling,
+        voiceboxHealthChecker: any VoiceboxHealthChecking
+    ) {
+        self.runner = runner
+        self.voiceboxServer = voiceboxServer
+        self.voiceboxHealthChecker = voiceboxHealthChecker
+    }
+
     var canRun: Bool {
         guard configuration.inputDirectory != nil, !isRunning else { return false }
         guard configuration.isVoiceboxURLValid else { return false }
+        if configuration.mode == .transcribeToText {
+            return configuration.isTranscriptionModelValid
+        }
         if configuration.mode == .synthesizeToAudio {
             return !configuration.profileID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 || !configuration.profileMap.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -198,7 +234,7 @@ final class AppState: ObservableObject {
                     if case .synthesize = job.action { return true }
                     return false
                 }) {
-                    await self.startVoiceboxServerIfNeeded()
+                    _ = await self.startVoiceboxServerIfNeeded()
                 }
                 let api = try VoiceboxAPI(baseURLString: self.configuration.voiceboxURL)
                 for (index, job) in jobs.enumerated() {
@@ -318,13 +354,25 @@ final class AppState: ObservableObject {
 
     func run() {
         guard canRun else { return }
+        runTask?.cancel()
         logText = ""
         lastExitStatus = nil
         isRunning = true
         append("Starting ChatParser with Voicebox at \(configuration.voiceboxURL)\n")
 
-        Task {
-            await startVoiceboxServerIfNeeded()
+        runTask = Task {
+            let voiceboxReady = await startVoiceboxServerIfNeeded()
+            guard !Task.isCancelled else {
+                isRunning = false
+                append("\nRun cancelled before ChatParser started.\n")
+                return
+            }
+            guard voiceboxReady else {
+                isRunning = false
+                lastExitStatus = 1
+                append("\nVoicebox is not ready: \(voiceboxServerMessage)\n")
+                return
+            }
             runner.run(
                 configuration: configuration,
                 onOutput: { [weak self] text in
@@ -342,7 +390,11 @@ final class AppState: ObservableObject {
     }
 
     func cancel() {
+        runTask?.cancel()
         runner.cancel()
+        if isVoiceboxServerStarting {
+            isRunning = false
+        }
         append("\nCancellation requested.\n")
     }
 
@@ -352,29 +404,29 @@ final class AppState: ObservableObject {
 
     func startVoiceboxServer() {
         Task {
-            await startVoiceboxServerIfNeeded(force: true)
+            _ = await startVoiceboxServerIfNeeded(force: true)
         }
     }
 
-    func startVoiceboxServerIfNeeded(force: Bool = false) async {
+    func startVoiceboxServerIfNeeded(force: Bool = false) async -> Bool {
         if isVoiceboxServerStarting {
             voiceboxServerMessage = "Waiting for Voicebox server..."
             while isVoiceboxServerStarting {
                 try? await Task.sleep(nanoseconds: 100_000_000)
             }
-            return
+            return isVoiceboxServerRunning
         }
         if !force, await isVoiceboxReachable() {
             isVoiceboxServerRunning = true
             isVoiceboxServerManaged = voiceboxServer.isManagedServerRunning(baseURLString: configuration.voiceboxURL)
             voiceboxServerMessage = isVoiceboxServerManaged ? "Voicebox server is running." : "Voicebox is already running outside ChatParser."
-            return
+            return true
         }
         guard configuration.isLoopbackVoiceboxURL else {
             isVoiceboxServerRunning = false
             isVoiceboxServerManaged = false
             voiceboxServerMessage = "Auto-start is only available for localhost Voicebox URLs."
-            return
+            return false
         }
 
         isVoiceboxServerStarting = true
@@ -382,6 +434,13 @@ final class AppState: ObservableObject {
         do {
             try await voiceboxServer.start(baseURLString: configuration.voiceboxURL) { [weak self] text in
                 Task { @MainActor in self?.appendVoiceboxServerOutput(text) }
+            }
+            guard !Task.isCancelled else {
+                isVoiceboxServerRunning = false
+                isVoiceboxServerManaged = false
+                voiceboxServerMessage = "Voicebox startup was cancelled."
+                isVoiceboxServerStarting = false
+                return false
             }
             isVoiceboxServerRunning = true
             isVoiceboxServerManaged = true
@@ -392,6 +451,7 @@ final class AppState: ObservableObject {
             voiceboxServerMessage = error.localizedDescription
         }
         isVoiceboxServerStarting = false
+        return isVoiceboxServerRunning
     }
 
     func stopVoiceboxServer() {
@@ -414,12 +474,7 @@ final class AppState: ObservableObject {
     }
 
     private func isVoiceboxReachable() async -> Bool {
-        do {
-            try await VoiceboxAPI(baseURLString: configuration.voiceboxURL).health()
-            return true
-        } catch {
-            return false
-        }
+        await voiceboxHealthChecker.isReachable(baseURLString: configuration.voiceboxURL)
     }
 
     func refreshVoicebox() {
@@ -683,7 +738,7 @@ final class AppState: ObservableObject {
             self.voiceboxMessage = ""
         }
         do {
-            await startVoiceboxServerIfNeeded()
+            _ = await startVoiceboxServerIfNeeded()
             let api = try VoiceboxAPI(baseURLString: await MainActor.run { self.configuration.voiceboxURL })
             try await action(api)
             await MainActor.run { self.voiceboxMessage = successMessage }

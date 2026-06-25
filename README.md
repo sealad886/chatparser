@@ -221,8 +221,13 @@ To convert audio attachments to text:
 python chatparser.py \
   --to-type text \
   --input-directory /path/to/export-or-parent \
-  --model turbo
+  --model turbo \
+  --voicebox-language en
 ```
+
+`--voicebox-language` is sent to Voicebox as the transcription language hint.
+The legacy `--prompt-file` option is not sent to Voicebox because the local
+`/transcribe` endpoint does not accept a prompt field.
 
 Make sure that your shell has read and write access to the given directory.
 

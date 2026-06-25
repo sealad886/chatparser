@@ -35,6 +35,43 @@ struct WhatsAppExportParserTests {
         #expect(messages[1].attachment?.isAudio == true)
     }
 
+    @Test func parsePreservesAndroidAttachmentFilenameWithSpaces() throws {
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+
+        let filename = "WhatsApp Audio 2024-12-31 at 23.05.00.opus"
+
+        let messages = WhatsAppExportParser().parse(
+            "31/12/2024, 23:05 - Alice: \(filename) (file attached)\n",
+            mediaRoot: folder
+        )
+
+        #expect(messages.count == 1)
+        #expect(messages[0].attachment?.filename == filename)
+        #expect(messages[0].attachment?.url.lastPathComponent == filename)
+        #expect(messages[0].attachment?.isAudio == true)
+    }
+
+    @Test func parseContinuationAttachmentMarkerBelongsToCurrentMessage() throws {
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+
+        let messages = WhatsAppExportParser().parse(
+            "[31/12/2024, 23:05:07] Alice: voice note caption\n"
+                + "<attached: clip.ogg>\n",
+            mediaRoot: folder
+        )
+
+        #expect(messages.count == 1)
+        #expect(messages[0].text == "voice note caption\n<attached: clip.ogg>")
+        #expect(messages[0].attachment?.filename == "clip.ogg")
+        #expect(messages[0].attachment?.isAudio == true)
+    }
+
     @Test func generatedAudioFilenameMatchesIOSExportNaming() throws {
         let folder = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

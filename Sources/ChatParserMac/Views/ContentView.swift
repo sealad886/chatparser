@@ -12,7 +12,7 @@ struct ContentView: View {
             DetailView()
         }
         .task {
-            await state.startVoiceboxServerIfNeeded()
+            _ = await state.startVoiceboxServerIfNeeded()
         }
     }
 }
@@ -426,6 +426,11 @@ private struct VoiceboxSettingsForm: View {
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 TextField("Transcription model", text: $state.configuration.model)
+                if state.configuration.mode == .transcribeToText && !state.configuration.isTranscriptionModelValid {
+                    Text("Use base, small, medium, large, turbo, or the matching whisper-* form.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
                 TextField("Fallback profile id", text: $state.configuration.profileID)
                 TextField("Language", text: $state.configuration.language)
                 TextEditor(text: $state.configuration.profileMap)

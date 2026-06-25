@@ -1,6 +1,14 @@
 import Foundation
 
 struct RunConfiguration: Equatable {
+    private static let voiceboxTranscriptionModels = Set([
+        "base",
+        "small",
+        "medium",
+        "large",
+        "turbo"
+    ])
+
     var inputDirectory: URL?
     var mode: TransformationMode = .transcribeToText
     var voiceboxURL: String = "http://127.0.0.1:17493"
@@ -20,6 +28,14 @@ struct RunConfiguration: Equatable {
               let host = url.host
         else { return false }
         return ["127.0.0.1", "localhost", "::1"].contains(host)
+    }
+
+    var isTranscriptionModelValid: Bool {
+        var value = model.trimmingCharacters(in: .whitespacesAndNewlines)
+        if value.hasPrefix("whisper-") {
+            value.removeFirst("whisper-".count)
+        }
+        return Self.voiceboxTranscriptionModels.contains(value)
     }
 
     static func isValidVoiceboxURL(_ value: String) -> Bool {

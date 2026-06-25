@@ -89,19 +89,21 @@ Fields:
 |---|---|---:|---|
 | file | File | Yes | Audio file, staged from project workspace. |
 | model | Text | Yes | Voicebox model name, for example `turbo`. |
+| language | Text | No | Optional Whisper language hint, for example `en` or `fr`. |
 
 Example:
 
 ```bash
 curl -X POST http://127.0.0.1:17493/transcribe \
   -F "file=@recording.wav" \
-  -F "model=turbo"
+  -F "model=turbo" \
+  -F "language=en"
 ```
 
 ChatParser response handling:
 
-- Accept JSON or text response shapes by using a typed adapter with schema
-  guards.
+- Accept the JSON response shape from the bundled Voicebox backend using a
+  typed adapter with schema guards.
 - Extract transcript text into `transcript_version.transcript_text`.
 - Store response metadata in `provenance_json`.
 - Never overwrite previous transcript versions for the same attachment.

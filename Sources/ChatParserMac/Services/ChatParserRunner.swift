@@ -1,6 +1,16 @@
 import Foundation
+import Darwin
 
-final class ChatParserRunner {
+protocol ChatParserRunning: AnyObject {
+    func run(
+        configuration: RunConfiguration,
+        onOutput: @escaping @Sendable (String) -> Void,
+        onTermination: @escaping @Sendable (Int32) -> Void
+    )
+    func cancel()
+}
+
+final class ChatParserRunner: ChatParserRunning {
     private let rootURL: URL
     private var process: Process?
 
@@ -71,6 +81,9 @@ final class ChatParserRunner {
     }
 
     func cancel() {
-        process?.terminate()
+        guard let process, process.isRunning else { return }
+        if kill(process.processIdentifier, SIGINT) != 0 {
+            process.terminate()
+        }
     }
 }

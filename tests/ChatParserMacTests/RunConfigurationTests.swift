@@ -13,4 +13,17 @@ struct RunConfigurationTests {
         #expect(arguments.contains("--no-progress-bar"))
         #expect(!arguments.contains("--progress-bar"))
     }
+
+    @Test func transcriptionModelValidationMatchesPythonCLIChoices() {
+        var configuration = RunConfiguration()
+
+        configuration.model = "turbo"
+        #expect(configuration.isTranscriptionModelValid)
+
+        configuration.model = "whisper-medium"
+        #expect(configuration.isTranscriptionModelValid)
+
+        configuration.model = "large-v3"
+        #expect(!configuration.isTranscriptionModelValid)
+    }
 }
