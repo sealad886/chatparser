@@ -89,8 +89,7 @@ final class AppState: ObservableObject {
     }
 
     var canGenerateSelectedChatMessageAudio: Bool {
-        guard configuration.mode == .synthesizeToAudio,
-              let message = selectedChatMessage,
+        guard let message = selectedChatMessage,
               !isConversationGenerating
         else { return false }
         let mappedProfileID = participantProfileIDs[message.participant]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -99,14 +98,12 @@ final class AppState: ObservableObject {
     }
 
     var canGenerateConversationAudio: Bool {
-        configuration.mode == .synthesizeToAudio
-            && !chatMessages.isEmpty
+        !chatMessages.isEmpty
             && !isConversationGenerating
     }
 
     var canGenerateSelectedTextAudio: Bool {
-        configuration.mode == .synthesizeToAudio
-            && selectedProfileID != nil
+        selectedProfileID != nil
             && !generationText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && !isVoiceboxBusy
     }
@@ -217,7 +214,6 @@ final class AppState: ObservableObject {
     }
 
     func generateSelectedChatMessageAudio() {
-        guard requireAudioSynthesisMode(messageTarget: .chat) else { return }
         guard let message = selectedChatMessage else { return }
         generationText = message.text
         selectedProfileID = participantProfileIDs[message.participant] ?? selectedProfileID
@@ -229,7 +225,6 @@ final class AppState: ObservableObject {
     }
 
     func generateConversationAudio() {
-        guard requireAudioSynthesisMode(messageTarget: .chat) else { return }
         cancelConversationGeneration(updateMessage: false)
         let jobs = ConversationAudioRenderPlan.jobs(
             messages: chatMessages,
@@ -709,7 +704,6 @@ final class AppState: ObservableObject {
     }
 
     func generateSelectedText() {
-        guard requireAudioSynthesisMode(messageTarget: .voicebox) else { return }
         guard let selectedProfileID, !generationText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.wav]
@@ -789,27 +783,6 @@ final class AppState: ObservableObject {
             await MainActor.run { self.voiceboxMessage = error.localizedDescription }
         }
         await MainActor.run { self.isVoiceboxBusy = false }
-    }
-}
-
-private extension AppState {
-    enum AudioSynthesisMessageTarget {
-        case chat
-        case voicebox
-    }
-
-    func requireAudioSynthesisMode(messageTarget: AudioSynthesisMessageTarget) -> Bool {
-        guard configuration.mode == .synthesizeToAudio else {
-            let message = "Switch Mode to Generate Audio before creating audio clips."
-            switch messageTarget {
-            case .chat:
-                chatMessage = message
-            case .voicebox:
-                voiceboxMessage = message
-            }
-            return false
-        }
-        return true
     }
 }
 

@@ -48,7 +48,7 @@ struct AppStateRunTests {
         #expect(state.logText.contains("Cancellation requested."))
     }
 
-    @Test func transcribeModeDisablesDirectAudioGenerationControls() {
+    @Test func directAudioGenerationControlsIgnoreBatchTransformMode() {
         let state = makeState()
         state.configuration.mode = .transcribeToText
         state.selectedProfileID = "profile-a"
@@ -56,28 +56,24 @@ struct AppStateRunTests {
         state.chatMessages = [sampleTextMessage()]
         state.selectedChatMessageID = "message-1"
 
-        #expect(!state.canGenerateSelectedTextAudio)
-        #expect(!state.canGenerateSelectedChatMessageAudio)
-        #expect(!state.canGenerateConversationAudio)
+        #expect(state.canGenerateSelectedTextAudio)
+        #expect(state.canGenerateSelectedChatMessageAudio)
+        #expect(state.canGenerateConversationAudio)
     }
 
-    @Test func transcribeModeRejectsDirectAudioGenerationActionsBeforePanelsOpen() {
+    @Test func directChatAudioControlsStillRequireSelectionAndProfile() {
         let state = makeState()
         state.configuration.mode = .transcribeToText
-        state.selectedProfileID = "profile-a"
-        state.generationText = "manual text"
         state.chatMessages = [sampleTextMessage()]
+
+        #expect(!state.canGenerateSelectedChatMessageAudio)
+        #expect(state.canGenerateConversationAudio)
+
         state.selectedChatMessageID = "message-1"
+        #expect(!state.canGenerateSelectedChatMessageAudio)
 
-        state.generateSelectedText()
-        #expect(state.voiceboxMessage == "Switch Mode to Generate Audio before creating audio clips.")
-
-        state.generateConversationAudio()
-        #expect(state.chatMessage == "Switch Mode to Generate Audio before creating audio clips.")
-
-        state.generateSelectedChatMessageAudio()
-        #expect(state.chatMessage == "Switch Mode to Generate Audio before creating audio clips.")
-        #expect(state.generationText == "manual text")
+        state.selectedProfileID = "profile-a"
+        #expect(state.canGenerateSelectedChatMessageAudio)
     }
 
     @Test func selectedChatMessageAudioRequiresMappedOrSelectedProfile() {
