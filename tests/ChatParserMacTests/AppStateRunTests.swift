@@ -80,6 +80,23 @@ struct AppStateRunTests {
         #expect(state.generationText == "manual text")
     }
 
+    @Test func selectedChatMessageAudioRequiresMappedOrSelectedProfile() {
+        let state = makeState()
+        state.configuration.mode = .synthesizeToAudio
+        state.chatMessages = [sampleTextMessage()]
+        state.selectedChatMessageID = "message-1"
+        state.selectedProfileID = nil
+
+        #expect(!state.canGenerateSelectedChatMessageAudio)
+
+        state.selectedProfileID = "profile-a"
+        #expect(state.canGenerateSelectedChatMessageAudio)
+
+        state.selectedProfileID = nil
+        state.setProfileID("profile-a", for: "Alice")
+        #expect(state.canGenerateSelectedChatMessageAudio)
+    }
+
     private func makeState() -> AppState {
         AppState(
             runner: FakeChatParserRunner(),

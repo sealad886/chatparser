@@ -10,6 +10,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    @MainActor
     private func applyLaunchWindowGeometry() {
         guard let window = NSApp.windows.first(where: { $0.title == "ChatParser" }) ?? NSApp.windows.first else {
             return

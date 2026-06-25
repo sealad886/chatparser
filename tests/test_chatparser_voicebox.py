@@ -161,6 +161,86 @@ def test_line_to_audio_uses_speaker_profile_mapping(tmp_path, monkeypatch):
     assert fake_client.generated[0]["profile_id"] == "alice-profile"
 
 
+def test_line_to_audio_uses_passed_speaker_profile_mapping(tmp_path, monkeypatch):
+    fake_client = FakeVoiceboxClient()
+    monkeypatch.setattr(chatparser, "__VOICEBOX_CLIENT", fake_client)
+    monkeypatch.setattr(chatparser, "__VOICEBOX_PROFILE", "fallback-profile")
+    monkeypatch.setattr(chatparser, "__VOICEBOX_PROFILE_MAP", {})
+    monkeypatch.setattr(chatparser, "__VOICEBOX_LANGUAGE", "en")
+    monkeypatch.setattr(chatparser, "__VERBOSE", False)
+
+    chatparser.line_to_audio(
+        "Voice mapped text",
+        "Alice",
+        "01/02/2024, 18:30:00",
+        str(tmp_path),
+        6,
+        {"Alice": "passed-alice-profile"},
+    )
+
+    assert fake_client.generated[0]["profile_id"] == "passed-alice-profile"
+
+
+def test_line_to_audio_replaces_whatsapp_location_without_crashing(tmp_path, monkeypatch):
+    class FakeLocation:
+        raw = {
+            "address": {
+                "road": "Main Street",
+                "city": "Dublin",
+                "country": "Ireland",
+            }
+        }
+
+    class FakeNominatim:
+        def __init__(self, user_agent):
+            assert user_agent == "ChatParser"
+
+        def reverse(self, query, exactly_one):
+            assert query == "53.3498,-6.2603"
+            assert exactly_one is True
+            return FakeLocation()
+
+    fake_client = FakeVoiceboxClient()
+    monkeypatch.setattr(chatparser, "__VOICEBOX_CLIENT", fake_client)
+    monkeypatch.setattr(chatparser, "__VOICEBOX_PROFILE", "voice-123")
+    monkeypatch.setattr(chatparser, "__VOICEBOX_PROFILE_MAP", {})
+    monkeypatch.setattr(chatparser, "__VOICEBOX_LANGUAGE", "en")
+    monkeypatch.setattr(chatparser, "__VERBOSE", False)
+    monkeypatch.setitem(chatparser._replace_location.__globals__, "Nominatim", FakeNominatim)
+
+    chatparser.line_to_audio(
+        "Location: https://maps.google.com/?q=53.3498,-6.2603.",
+        "Alice",
+        "01/02/2024, 18:30:00",
+        str(tmp_path),
+        7,
+        {},
+    )
+
+    assert fake_client.generated[0]["text"] == "Location: sent is in Main Street, Dublin, Ireland."
+
+
+def test_line_to_audio_preserves_short_text_when_spellcheck_returns_empty(tmp_path, monkeypatch):
+    fake_client = FakeVoiceboxClient()
+    monkeypatch.setattr(chatparser, "__VOICEBOX_CLIENT", fake_client)
+    monkeypatch.setattr(chatparser, "__VOICEBOX_PROFILE", "voice-123")
+    monkeypatch.setattr(chatparser, "__VOICEBOX_PROFILE_MAP", {})
+    monkeypatch.setattr(chatparser, "__VOICEBOX_LANGUAGE", "en")
+    monkeypatch.setattr(chatparser, "__VERBOSE", False)
+    monkeypatch.setattr(chatparser, "_check_spelling", lambda text: "")
+
+    chatparser.line_to_audio(
+        "ok",
+        "Alice",
+        "01/02/2024, 18:30:00",
+        str(tmp_path),
+        8,
+        {},
+    )
+
+    assert fake_client.generated[0]["text"] == "Line was too short: ok"
+
+
 def test_line_to_audio_uses_android_export_naming(tmp_path, monkeypatch):
     fake_client = FakeVoiceboxClient()
     monkeypatch.setattr(chatparser, "__VOICEBOX_CLIENT", fake_client)
@@ -345,8 +425,9 @@ def test_text_export_preserves_non_attachment_messages(tmp_path, monkeypatch):
     export_dir.mkdir()
     chat_file = export_dir / "_chat.txt"
     chat_file.write_text(
-        "[01/02/2024, 18:30:00] Alice: Meet at the station\n"
-        "[01/02/2024, 18:31:00] Bob: See you there\n",
+        "[01/02/2024, 18:30:00] Alice: Meet at the station 😄\n"
+        "[01/02/2024, 18:31:00] Bob: See you there\n"
+        "Bring snacks 🎧\n",
         encoding="utf-8",
     )
     monkeypatch.setattr(chatparser, "__FORCE_REDO", True)
@@ -367,8 +448,8 @@ def test_text_export_preserves_non_attachment_messages(tmp_path, monkeypatch):
     )
 
     assert file_out == [
-        "[01/02/2024, 18:30:00] Alice: Meet at the station\n",
-        "[01/02/2024, 18:31:00] Bob: See you there\n",
+        "[01/02/2024, 18:30:00] Alice: Meet at the station 😄\n",
+        "[01/02/2024, 18:31:00] Bob: See you there\nBring snacks 🎧\n",
     ]
 
 

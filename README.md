@@ -248,6 +248,7 @@ Any advise for common problems or issues.
 ```bash
 . .venv/bin/activate
 python -m pytest
+python -m ruff check .
 swift test
 swift build
 ./script/build_and_run.sh --verify

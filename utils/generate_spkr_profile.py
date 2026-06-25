@@ -25,6 +25,8 @@ from __future__ import annotations
 
 import argparse
 
+from tqdm import tqdm
+
 from voicebox_client import VoiceboxClient
 
 
@@ -52,7 +54,13 @@ def create_voicebox_profile_from_files(
     profile_id = profile["id"]
     samples = [
         client.add_profile_sample(profile_id, audio_file, reference_text)
-        for audio_file, reference_text in zip(audio_files, reference_texts)
+        for audio_file, reference_text in tqdm(
+            zip(audio_files, reference_texts, strict=True),
+            desc="Voice samples",
+            total=len(audio_files),
+            unit="sample",
+            dynamic_ncols=True,
+        )
     ]
     return {"profile": profile, "samples": samples}
 

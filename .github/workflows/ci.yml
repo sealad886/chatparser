@@ -23,10 +23,18 @@ jobs:
         run: |
           . .venv/bin/activate
           python -m pytest
+      - name: Run Python lint
+        run: |
+          . .venv/bin/activate
+          python -m ruff check .
+      - name: Check whitespace
+        run: git diff --check
 
   macos:
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
+      - name: Run SwiftPM tests
+        run: swift test -Xswiftc -strict-concurrency=complete -Xswiftc -warn-concurrency
       - name: Build SwiftPM app
         run: swift build

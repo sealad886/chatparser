@@ -2,7 +2,7 @@ import AppKit
 import Foundation
 import UniformTypeIdentifiers
 
-protocol VoiceboxHealthChecking {
+protocol VoiceboxHealthChecking: Sendable {
     func isReachable(baseURLString: String) async -> Bool
 }
 
@@ -89,9 +89,13 @@ final class AppState: ObservableObject {
     }
 
     var canGenerateSelectedChatMessageAudio: Bool {
-        configuration.mode == .synthesizeToAudio
-            && selectedChatMessage != nil
-            && !isConversationGenerating
+        guard configuration.mode == .synthesizeToAudio,
+              let message = selectedChatMessage,
+              !isConversationGenerating
+        else { return false }
+        let mappedProfileID = participantProfileIDs[message.participant]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let fallbackProfileID = selectedProfileID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return !mappedProfileID.isEmpty || !fallbackProfileID.isEmpty
     }
 
     var canGenerateConversationAudio: Bool {
@@ -217,6 +221,10 @@ final class AppState: ObservableObject {
         guard let message = selectedChatMessage else { return }
         generationText = message.text
         selectedProfileID = participantProfileIDs[message.participant] ?? selectedProfileID
+        guard !(selectedProfileID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true) else {
+            chatMessage = "Select or map a Voicebox profile before creating audio clips."
+            return
+        }
         generateSelectedText()
     }
 
@@ -255,7 +263,14 @@ final class AppState: ObservableObject {
                     if case .synthesize = job.action { return true }
                     return false
                 }) {
-                    _ = await self.startVoiceboxServerIfNeeded()
+                    guard await self.startVoiceboxServerIfNeeded() else {
+                        await MainActor.run {
+                            self.chatMessage = "Voicebox is not ready: \(self.voiceboxServerMessage)"
+                            self.isConversationGenerating = false
+                            self.conversationProgress = ""
+                        }
+                        return
+                    }
                 }
                 let api = try VoiceboxAPI(baseURLString: self.configuration.voiceboxURL)
                 for (index, job) in jobs.enumerated() {
@@ -760,7 +775,13 @@ final class AppState: ObservableObject {
             self.voiceboxMessage = ""
         }
         do {
-            _ = await startVoiceboxServerIfNeeded()
+            guard await startVoiceboxServerIfNeeded() else {
+                await MainActor.run {
+                    self.voiceboxMessage = self.voiceboxServerMessage
+                    self.isVoiceboxBusy = false
+                }
+                return
+            }
             let api = try VoiceboxAPI(baseURLString: await MainActor.run { self.configuration.voiceboxURL })
             try await action(api)
             await MainActor.run { self.voiceboxMessage = successMessage }

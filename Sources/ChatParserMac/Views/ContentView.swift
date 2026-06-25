@@ -298,6 +298,7 @@ private struct AttachmentThumbnail: View {
     }
 }
 
+@MainActor
 private enum AttachmentImageCache {
     static let shared = NSCache<NSURL, NSImage>()
 }

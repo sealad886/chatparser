@@ -7,9 +7,23 @@ markers = [
 ]
 
 [tool.ruff]
+exclude = [
+    "external",
+    "graphify-out",
+    "unsloth",
+    "utils/deprecated.py",
+    "utils/in_development.py",
+]
+force-exclude = true
 line-length = 120
+required-version = "==0.15.19"
 target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
 ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"chatparser.py" = ["E401", "E701", "E702", "E711", "F401", "F841", "I001", "UP015"]
+"tests/*.py" = ["I001"]
+"utils/utils.py" = ["B007", "E701", "E711", "E722", "I001"]

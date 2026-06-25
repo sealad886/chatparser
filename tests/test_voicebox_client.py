@@ -219,7 +219,7 @@ def test_generate_speech_waits_for_queued_generation_before_audio_fetch(tmp_path
         if request.full_url.endswith("/generate/gen-123/status"):
             status_calls += 1
             status = "generating" if status_calls == 1 else "completed"
-            return StreamingFakeResponse(f'data: {{"id":"gen-123","status":"{status}"}}\n\n'.encode("utf-8"))
+            return StreamingFakeResponse(f'data: {{"id":"gen-123","status":"{status}"}}\n\n'.encode())
         if request.full_url.endswith("/audio/gen-123"):
             return FakeResponse(200, b"wav-bytes", {"Content-Type": "audio/wav"})
         raise AssertionError(request.full_url)

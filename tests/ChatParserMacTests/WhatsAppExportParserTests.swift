@@ -54,6 +54,32 @@ struct WhatsAppExportParserTests {
         #expect(messages[0].attachment?.isAudio == true)
     }
 
+    @Test func parsePreservesAndroidImageAndDocumentFilenamesWithSpaces() throws {
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+
+        let imageFilename = "WhatsApp Image 2024-12-31 at 23.05.00.jpeg"
+        let documentFilename = "WhatsApp Document 2024-12-31 at 23.05.01.pdf"
+
+        let messages = WhatsAppExportParser().parse(
+            """
+            31/12/2024, 23:05 - Alice: \(imageFilename) (file attached)
+            31/12/2024, 23:06 - Alice: \(documentFilename) (file attached)
+            """,
+            mediaRoot: folder
+        )
+
+        #expect(messages.count == 2)
+        #expect(messages[0].attachment?.filename == imageFilename)
+        #expect(messages[0].attachment?.url.lastPathComponent == imageFilename)
+        #expect(messages[0].attachment?.isAudio == false)
+        #expect(messages[1].attachment?.filename == documentFilename)
+        #expect(messages[1].attachment?.url.lastPathComponent == documentFilename)
+        #expect(messages[1].attachment?.isAudio == false)
+    }
+
     @Test func parseContinuationAttachmentMarkerBelongsToCurrentMessage() throws {
         let folder = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

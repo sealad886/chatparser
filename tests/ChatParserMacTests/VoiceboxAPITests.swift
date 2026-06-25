@@ -10,11 +10,12 @@ struct VoiceboxAPITests {
             .appendingPathExtension("wav")
         defer { try? FileManager.default.removeItem(at: outputURL) }
 
+        let statusRequests = LockedValue(0)
         let session = URLSession(configuration: Self.urlSessionConfiguration { request in
             let path = request.url?.path ?? ""
             switch (request.httpMethod, path) {
             case ("POST", "/generate"):
-                return Self.jsonResponse(
+                return try Self.jsonResponse(
                     path: path,
                     body: [
                         "id": "gen-123",
@@ -26,8 +27,11 @@ struct VoiceboxAPITests {
                     ]
                 )
             case ("GET", "/generate/gen-123/status"):
-                Self.statusRequests += 1
-                if Self.statusRequests == 1 {
+                let requestCount = statusRequests.withValue { count in
+                    count += 1
+                    return count
+                }
+                if requestCount == 1 {
                     return Self.eventStream(path: path, body: #"data: {"id":"gen-123","status":"generating"}"# + "\n\n")
                 }
                 return Self.eventStream(path: path, body: #"data: {"id":"gen-123","status":"completed"}"# + "\n\n")
@@ -38,7 +42,6 @@ struct VoiceboxAPITests {
             }
         })
 
-        Self.statusRequests = 0
         let api = try VoiceboxAPI(
             baseURLString: "http://127.0.0.1:17493",
             session: session,
@@ -55,7 +58,7 @@ struct VoiceboxAPITests {
 
         #expect(written == outputURL)
         #expect(try Data(contentsOf: outputURL) == Data("wav-bytes".utf8))
-        #expect(Self.statusRequests == 2)
+        #expect(statusRequests.value == 2)
     }
 
     @Test func generateSpeechSurfacesTerminalFailureFromStatusStream() async throws {
@@ -68,7 +71,7 @@ struct VoiceboxAPITests {
             let path = request.url?.path ?? ""
             switch (request.httpMethod, path) {
             case ("POST", "/generate"):
-                return Self.jsonResponse(
+                return try Self.jsonResponse(
                     path: path,
                     body: [
                         "id": "gen-failed",
@@ -120,7 +123,7 @@ struct VoiceboxAPITests {
             let path = request.url?.path ?? ""
             switch (request.httpMethod, path) {
             case ("POST", "/generate"):
-                return Self.jsonResponse(
+                return try Self.jsonResponse(
                     path: path,
                     body: [
                         "id": "gen-empty",
@@ -164,7 +167,7 @@ struct VoiceboxAPITests {
             let path = request.url?.path ?? ""
             switch (request.httpMethod, path) {
             case ("POST", "/generate"):
-                return Self.jsonResponse(
+                return try Self.jsonResponse(
                     path: path,
                     body: [
                         "id": "gen-json",
@@ -202,19 +205,65 @@ struct VoiceboxAPITests {
         #expect(!FileManager.default.fileExists(atPath: outputURL.path))
     }
 
-    private static var statusRequests = 0
+    @Test func generateSpeechRejectsMissingAudioContentType() async throws {
+        let outputURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("wav")
+        defer { try? FileManager.default.removeItem(at: outputURL) }
+
+        let session = URLSession(configuration: Self.urlSessionConfiguration { request in
+            let path = request.url?.path ?? ""
+            switch (request.httpMethod, path) {
+            case ("POST", "/generate"):
+                return try Self.jsonResponse(
+                    path: path,
+                    body: [
+                        "id": "gen-no-content-type",
+                        "profile_id": "profile-123",
+                        "text": "hello",
+                        "language": "en",
+                        "status": "completed",
+                        "audio_path": ""
+                    ]
+                )
+            case ("GET", "/audio/gen-no-content-type"):
+                return Self.response(
+                    path: path,
+                    contentType: "",
+                    body: Data(#"{"detail":"not ready"}"#.utf8)
+                )
+            default:
+                throw TestHTTPError.unexpectedRequest("\(request.httpMethod ?? "") \(path)")
+            }
+        })
+
+        let api = try VoiceboxAPI(baseURLString: "http://127.0.0.1:17493", session: session)
+
+        do {
+            _ = try await api.generateSpeech(
+                profileID: "profile-123",
+                text: "hello",
+                language: "en",
+                destination: outputURL
+            )
+            Issue.record("Expected generateSpeech to reject missing audio content type")
+        } catch {
+            #expect(error.localizedDescription == "Voicebox returned non-audio content from /audio: missing Content-Type")
+        }
+        #expect(!FileManager.default.fileExists(atPath: outputURL.path))
+    }
 
     private static func urlSessionConfiguration(
         handler: @escaping @Sendable (URLRequest) throws -> (HTTPURLResponse, Data)
     ) -> URLSessionConfiguration {
-        MockURLProtocol.handler = handler
+        MockURLProtocol.setHandler(handler)
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [MockURLProtocol.self]
         return configuration
     }
 
-    private static func jsonResponse(path: String, body: [String: String]) -> (HTTPURLResponse, Data) {
-        response(path: path, contentType: "application/json", body: try! JSONEncoder().encode(body))
+    private static func jsonResponse(path: String, body: [String: String]) throws -> (HTTPURLResponse, Data) {
+        try response(path: path, contentType: "application/json", body: JSONEncoder().encode(body))
     }
 
     private static func eventStream(path: String, body: String) -> (HTTPURLResponse, Data) {
@@ -237,8 +286,39 @@ private enum TestHTTPError: Error {
     case unexpectedRequest(String)
 }
 
+private final class LockedValue<Value>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedValue: Value
+
+    init(_ value: Value) {
+        self.storedValue = value
+    }
+
+    var value: Value {
+        lock.lock()
+        defer { lock.unlock() }
+        return storedValue
+    }
+
+    func set(_ value: Value) {
+        lock.lock()
+        defer { lock.unlock() }
+        storedValue = value
+    }
+
+    func withValue<Result>(_ body: (inout Value) throws -> Result) rethrows -> Result {
+        lock.lock()
+        defer { lock.unlock() }
+        return try body(&storedValue)
+    }
+}
+
 private final class MockURLProtocol: URLProtocol, @unchecked Sendable {
-    static var handler: (@Sendable (URLRequest) throws -> (HTTPURLResponse, Data))?
+    private static let handlerStore = LockedValue<(@Sendable (URLRequest) throws -> (HTTPURLResponse, Data))?>(nil)
+
+    static func setHandler(_ handler: @escaping @Sendable (URLRequest) throws -> (HTTPURLResponse, Data)) {
+        handlerStore.set(handler)
+    }
 
     override class func canInit(with request: URLRequest) -> Bool {
         true
@@ -249,7 +329,7 @@ private final class MockURLProtocol: URLProtocol, @unchecked Sendable {
     }
 
     override func startLoading() {
-        guard let handler = Self.handler else {
+        guard let handler = Self.handlerStore.value else {
             client?.urlProtocol(self, didFailWithError: TestHTTPError.unexpectedRequest("missing handler"))
             return
         }

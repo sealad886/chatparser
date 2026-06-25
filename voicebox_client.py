@@ -3,13 +3,14 @@ from __future__ import annotations
 import json
 import mimetypes
 import time
-import uuid
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 
 class VoiceboxError(RuntimeError):
@@ -290,9 +291,9 @@ class VoiceboxClient:
         for name, value in fields.items():
             chunks.extend(
                 [
-                    f"--{boundary}\r\n".encode("utf-8"),
-                    f'Content-Disposition: form-data; name="{name}"\r\n\r\n'.encode("utf-8"),
-                    str(value).encode("utf-8"),
+                    f"--{boundary}\r\n".encode(),
+                    f'Content-Disposition: form-data; name="{name}"\r\n\r\n'.encode(),
+                    str(value).encode(),
                     b"\r\n",
                 ]
             )
@@ -301,16 +302,16 @@ class VoiceboxClient:
             content_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
             chunks.extend(
                 [
-                    f"--{boundary}\r\n".encode("utf-8"),
+                    f"--{boundary}\r\n".encode(),
                     (
                         f'Content-Disposition: form-data; name="{name}"; '
                         f'filename="{path.name}"\r\n'
-                    ).encode("utf-8"),
-                    f"Content-Type: {content_type}\r\n\r\n".encode("utf-8"),
+                    ).encode(),
+                    f"Content-Type: {content_type}\r\n\r\n".encode(),
                     path.read_bytes(),
                     b"\r\n",
                 ]
             )
 
-        chunks.append(f"--{boundary}--\r\n".encode("utf-8"))
+        chunks.append(f"--{boundary}--\r\n".encode())
         return {"Content-Type": f"multipart/form-data; boundary={boundary}"}, b"".join(chunks)

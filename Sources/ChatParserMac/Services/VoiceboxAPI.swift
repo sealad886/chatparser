@@ -32,7 +32,7 @@ enum VoiceboxAPIError: LocalizedError {
     }
 }
 
-final class VoiceboxAPI {
+final class VoiceboxAPI: @unchecked Sendable {
     private let baseURL: URL
     private let session: URLSession
     private let generationPollInterval: TimeInterval
@@ -106,7 +106,7 @@ final class VoiceboxAPI {
         text: String,
         language: String,
         destination: URL,
-        onGenerationID: ((String) async -> Void)? = nil
+        onGenerationID: (@Sendable (String) async -> Void)? = nil
     ) async throws -> URL {
         let response: GenerationResponse = try await jsonRequest(
             "POST",
@@ -203,7 +203,10 @@ final class VoiceboxAPI {
         }
         let data = try await perform(request)
         if Response.self == EmptyResponse.self {
-            return EmptyResponse() as! Response
+            if let emptyResponse = EmptyResponse() as? Response {
+                return emptyResponse
+            }
+            throw VoiceboxAPIError.invalidResponse
         }
         return try decoder.decode(Response.self, from: data)
     }
@@ -231,7 +234,10 @@ final class VoiceboxAPI {
             throw VoiceboxAPIError.emptyAudioResponse
         }
         let contentType = response.value(forHTTPHeaderField: "Content-Type")?.lowercased() ?? ""
-        guard contentType.isEmpty || contentType.hasPrefix("audio/") else {
+        guard !contentType.isEmpty else {
+            throw VoiceboxAPIError.invalidAudioResponse("missing Content-Type")
+        }
+        guard contentType.hasPrefix("audio/") else {
             throw VoiceboxAPIError.invalidAudioResponse(contentType)
         }
         return data

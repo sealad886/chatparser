@@ -434,7 +434,6 @@ def process_chat_file_by_type(chat_file: str, audio_folder: str, model_prompt: s
             # Check if the line contains an audio attachment
             line = file_in[i].decode().strip()
             print(f"{line}") if __VERBOSE else None
-            line = re.sub(r'[^\x20-\x7E\u00A0-\uD7FF\uF900-\uFFFF\u200e]', '', line)
             if len(line) < 1: continue
             line = line.replace("\u200e","")
             parsed = parse_whatsapp_line(line)
@@ -581,7 +580,7 @@ def move_audio_file(attachment, audio_folder, ctr) -> None:
     with open(target_file, "wb") as a:
         tmpaudio.export(a, format="mp3")
 
-def line_to_audio(line, spkrname, date_time_str, audio_folder, ctr: int, spkr_profiles: dict = {}, source_format: str = "ios"):
+def line_to_audio(line, spkrname, date_time_str, audio_folder, ctr: int, spkr_profiles: dict | None = None, source_format: str = "ios"):
     os.makedirs(os.path.join(audio_folder, "audio_out"), exist_ok=True)
     audio_out_file = os.path.join(
         audio_folder,
@@ -598,22 +597,24 @@ def line_to_audio(line, spkrname, date_time_str, audio_folder, ctr: int, spkr_pr
     global __VOICEBOX_LANGUAGE
     if __VOICEBOX_CLIENT is None:
         __VOICEBOX_CLIENT = VoiceboxClient(base_url=__VOICEBOX_URL or "http://127.0.0.1:17493")
-    profile_id = (__VOICEBOX_PROFILE_MAP or {}).get(spkrname) or __VOICEBOX_PROFILE
+    profile_id = (__VOICEBOX_PROFILE_MAP or spkr_profiles or {}).get(spkrname) or __VOICEBOX_PROFILE
 
     print(f"Audio out file: {audio_out_file}") if __VERBOSE else None
     line_list = line.strip().split(" ")
 
     # deal with locations being sent
     locreplaced = False
-    uline_list = [_replace_location(sent) for sent in line_list]
-    if uline_list != line_list:
+    uline_list = [_replace_location(line.strip()).strip()]
+    if uline_list[0] != line.strip():
         locreplaced = True
         line_list = uline_list.copy()
 
     print(f"  Updated location in chat no. {ctr+1}") if locreplaced else None
 
     line_text = " ".join(line_list)
-    if line_text == "": print("No line text.") if __VERBOSE else None; return
+    if line_text == "":
+        print("No line text.") if __VERBOSE else None
+        return
     #else: None
 
     # substitute numbers for words
@@ -624,7 +625,9 @@ def line_to_audio(line, spkrname, date_time_str, audio_folder, ctr: int, spkr_pr
         line_text = line_text.replace("`", "'")
         line_text = line_text.replace("O' ", "O'")
         try:
-            line_text = _check_spelling(line_text)
+            corrected_text = _check_spelling(line_text)
+            if corrected_text:
+                line_text = corrected_text
         except LookupError:
             print("NLTK data unavailable; using uncorrected text for Voicebox generation.") if __VERBOSE else None
     
@@ -633,7 +636,8 @@ def line_to_audio(line, spkrname, date_time_str, audio_folder, ctr: int, spkr_pr
     sent_cnt = 1
     sentence = line_text
     print(f"Processing chat {ctr+1}...") if __VERBOSE else None
-    if len(sentence) < 8: sentence = f"Line was too short: {sentence}"
+    if len(sentence) < 8:
+        sentence = f"Line was too short: {sentence}"
     print(f"  Sentence: {spkrname}: {sentence}\n")
     sentence = sentence if len(sentence.split(" ")) > 1 else sentence + " " + sentence
     __VOICEBOX_CLIENT.generate_speech(
@@ -921,6 +925,7 @@ if __name__ == "__main__":
         try:
             process_directories(dir, model_input, to_type, num_workers=__NUM_WORKERS)
         finally:
-            with open(os.path.join(dir, "_debug_dict.json"), 'a') as f:
-                json.dump(debug_dict,f)
+            if __VERBOSE and debug_dict:
+                with open(os.path.join(dir, "_debug_dict.json"), 'w') as f:
+                    json.dump(debug_dict, f)
     if __ENABLE_TIMINGS: print(json.dumps(timings_measurement))

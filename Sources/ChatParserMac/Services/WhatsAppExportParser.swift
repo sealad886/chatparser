@@ -161,7 +161,7 @@ struct WhatsAppExportParser: Sendable {
         }
         if let match = match(
             text,
-            pattern: #"((?:WhatsApp\s+)?(?:Audio|Video)[^\r\n]*?\.[A-Za-z0-9]+|Voice Note[^\r\n]*?\.[A-Za-z0-9]+|(?:AUD|PTT|VID|IMG)-\S+\.[A-Za-z0-9]+|\S+\.[A-Za-z0-9]+)\s+\(file attached\)"#,
+            pattern: #"((?:WhatsApp\s+)?(?:Audio|Video|Image|Document)[^\r\n]*?\.[A-Za-z0-9]+|Voice Note[^\r\n]*?\.[A-Za-z0-9]+|(?:AUD|PTT|VID|IMG)-\S+\.[A-Za-z0-9]+|\S+\.[A-Za-z0-9]+)\s+\(file attached\)"#,
             options: [.caseInsensitive]
         ) {
             return makeAttachment(filename: match[1], mediaRoot: mediaRoot)

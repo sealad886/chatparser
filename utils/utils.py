@@ -98,7 +98,8 @@ def _get_spkr_profile(spkrname, spkr_profiles, audio_folder):
         spkr_profiles[spkrname] = spkr_profile
     else:
         spkr_profile = default_spkr_profile
-    if spkr_profile == "" or spkr_profile == None: spkr_profile = default_spkr_profile
+    if spkr_profile in ("", None):
+        spkr_profile = default_spkr_profile
 
     return spkr_profile
 
@@ -113,18 +114,21 @@ def _replace_location(sent: str) -> str:
         Note: can use output of this function to skip futher checks (e.g. spell-check) and other costly string manipulations
     '''
     splitstr = sent.split(": ", 1)
-    if len(splitstr) < 2: return sent
+    if len(splitstr) < 2:
+        return sent
     if "Location" in splitstr[0]:
         geo = Nominatim(user_agent="ChatParser")
         tmptxt = splitstr[1]
-        if tmptxt[-1] == '.': tmptxt = tmptxt[:-1]
+        if tmptxt.endswith("."):
+            tmptxt = tmptxt[:-1]
         loc_info = geo.reverse(tmptxt.split("?q=")[1], exactly_one=True).raw['address']
         road = loc_info.get('road', '')
         city = loc_info.get('city', '')
         country = loc_info.get('country', '')
         country = country.split(" / ")[1] if len(country.split(" / ")) > 1 else country
         tourism = loc_info.get('tourism', '')
-        line_list = [line_list[0], f"sent is in {road}, {city}, {country}{f' Tourist site: ({tourism})' if tourism else None}."]
+        tourism_text = f" Tourist site: ({tourism})" if tourism else ""
+        return f"{splitstr[0]}: sent is in {road}, {city}, {country}{tourism_text}."
     else:
         print('This should never print. If you see this message, please first see if a new version has been released. If not, please contact the developer for debugging assistance. Line:', sent)
-    return line_list
+    return sent

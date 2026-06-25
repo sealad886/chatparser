@@ -80,6 +80,9 @@ struct SystemVoiceboxProcessInspector: VoiceboxProcessInspecting {
 final class VoiceboxServerController: VoiceboxServerControlling {
     private let rootURL: URL
     private let processInspector: any VoiceboxProcessInspecting
+    private let readinessTimeout: TimeInterval
+    private let readinessPollInterval: UInt64
+    private let readinessCheck: @Sendable (String) async throws -> Void
     private var process: Process?
     private var processEndpoint: (host: String, port: Int)?
     private var outputPipe: Pipe?
@@ -87,10 +90,18 @@ final class VoiceboxServerController: VoiceboxServerControlling {
 
     init(
         rootURL: URL = VoiceboxServerController.resolveRepositoryRoot(),
-        processInspector: any VoiceboxProcessInspecting = SystemVoiceboxProcessInspector()
+        processInspector: any VoiceboxProcessInspecting = SystemVoiceboxProcessInspector(),
+        readinessTimeout: TimeInterval = 45,
+        readinessPollInterval: UInt64 = 500_000_000,
+        readinessCheck: (@Sendable (String) async throws -> Void)? = nil
     ) {
         self.rootURL = rootURL
         self.processInspector = processInspector
+        self.readinessTimeout = readinessTimeout
+        self.readinessPollInterval = readinessPollInterval
+        self.readinessCheck = readinessCheck ?? { baseURLString in
+            try await VoiceboxAPI(baseURLString: baseURLString).health()
+        }
     }
 
     var isRunning: Bool {
@@ -98,9 +109,30 @@ final class VoiceboxServerController: VoiceboxServerControlling {
     }
 
     func start(baseURLString: String, onOutput: @escaping @Sendable (String) -> Void) async throws {
-        guard !isRunning else { return }
         let endpoint = try endpointInfo(from: baseURLString)
-        guard managedProcessRecordIfRunning(matching: endpoint) == nil else { return }
+        if let process, process.isRunning {
+            guard let processEndpoint,
+                  processEndpoint.host == endpoint.host,
+                  processEndpoint.port == endpoint.port
+            else {
+                let runningEndpoint = processEndpoint.map { "\($0.host):\($0.port)" } ?? "another endpoint"
+                throw VoiceboxServerError.startFailed(
+                    "Voicebox server is already managed at \(runningEndpoint). Stop it before starting \(endpoint.host):\(endpoint.port)."
+                )
+            }
+            try await waitUntilReady(baseURLString: baseURLString)
+            return
+        }
+        if let record = managedProcessRecordIfRunning(matching: endpoint) {
+            do {
+                try await waitUntilReady(baseURLString: baseURLString)
+                return
+            } catch {
+                processInspector.terminate(pid: record.pid)
+                clearManagedProcessRecord(processID: record.pid)
+                throw error
+            }
+        }
         let voiceboxURL = rootURL.appendingPathComponent("external/voicebox")
         let backendPython = voiceboxURL.appendingPathComponent("backend/venv/bin/python")
         guard FileManager.default.fileExists(atPath: voiceboxURL.appendingPathComponent("backend/main.py").path) else {
@@ -126,14 +158,14 @@ final class VoiceboxServerController: VoiceboxServerControlling {
         pipe.fileHandleForReading.readabilityHandler = { handle in
             let data = handle.availableData
             guard !data.isEmpty, let text = String(data: data, encoding: .utf8) else { return }
-            logFile.write(data)
+            try? logFile.write(contentsOf: data)
             onOutput(text)
         }
         process.terminationHandler = { [weak self] process in
             pipe.fileHandleForReading.readabilityHandler = nil
             let message = "Voicebox server exited with status \(process.terminationStatus)\n"
             if let data = message.data(using: .utf8) {
-                logFile.write(data)
+                try? logFile.write(contentsOf: data)
             }
             try? logFile.close()
             onOutput("Voicebox server exited with status \(process.terminationStatus)\n")
@@ -170,12 +202,18 @@ final class VoiceboxServerController: VoiceboxServerControlling {
             onOutput("Could not write Voicebox server ownership record: \(error.localizedDescription)\n")
         }
         onOutput("Voicebox server log: \(logFileURL.path)\n")
-        try await waitUntilReady(baseURLString: baseURLString)
+        do {
+            try await waitUntilReady(baseURLString: baseURLString)
+        } catch {
+            stop(baseURLString: baseURLString)
+            throw error
+        }
     }
 
     func stop(baseURLString: String? = nil) {
         if let process {
             let processID = process.processIdentifier
+            process.terminationHandler = nil
             process.terminate()
             clearManagedProcessRecord(processID: processID)
         } else if let baseURLString,
@@ -206,13 +244,13 @@ final class VoiceboxServerController: VoiceboxServerControlling {
     }
 
     private func waitUntilReady(baseURLString: String) async throws {
-        let deadline = Date().addingTimeInterval(45)
+        let deadline = Date().addingTimeInterval(readinessTimeout)
         while Date() < deadline {
             do {
-                try await VoiceboxAPI(baseURLString: baseURLString).health()
+                try await readinessCheck(baseURLString)
                 return
             } catch {
-                try await Task.sleep(nanoseconds: 500_000_000)
+                try await Task.sleep(nanoseconds: readinessPollInterval)
             }
         }
         throw VoiceboxServerError.timedOut
